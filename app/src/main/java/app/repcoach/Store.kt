@@ -1,0 +1,67 @@
+package app.repcoach
+
+import android.content.Context
+import app.repcoach.core.ClaudeCoach
+import app.repcoach.core.SessionPlan
+import app.repcoach.core.Workout
+import kotlinx.serialization.Serializable
+import kotlinx.serialization.builtins.ListSerializer
+import kotlinx.serialization.json.Json
+import java.io.File
+
+/** A workout being logged right now, saved after every set so nothing is lost if the app closes. */
+@Serializable
+data class ActiveWorkout(
+    val plan: SessionPlan,
+    val startMillis: Long,
+    val energy: Int,
+    /** Logged sets per exercise name, in plan order. */
+    val logged: Map<String, List<app.repcoach.core.LoggedSet>> = emptyMap(),
+    val restEndsAt: Long? = null,
+)
+
+data class Settings(
+    val apiKey: String,
+    val model: String,
+    val notes: String,
+)
+
+/** Everything lives on the phone: workouts in a JSON file, settings in private preferences. */
+class Store(context: Context) {
+    private val dir = context.filesDir
+    private val workoutsFile = File(dir, "workouts.json")
+    private val activeFile = File(dir, "active.json")
+    private val prefs = context.getSharedPreferences("settings", Context.MODE_PRIVATE)
+    private val json = Json { ignoreUnknownKeys = true; encodeDefaults = true }
+    private val listSerializer = ListSerializer(Workout.serializer())
+
+    fun loadWorkouts(): List<Workout> =
+        if (workoutsFile.exists()) json.decodeFromString(listSerializer, workoutsFile.readText()) else emptyList()
+
+    fun saveWorkouts(workouts: List<Workout>) = writeAtomically(workoutsFile, json.encodeToString(listSerializer, workouts))
+
+    fun exportJson(workouts: List<Workout>): String = json.encodeToString(listSerializer, workouts)
+
+    fun loadActive(): ActiveWorkout? =
+        if (activeFile.exists()) runCatching { json.decodeFromString(ActiveWorkout.serializer(), activeFile.readText()) }.getOrNull() else null
+
+    fun saveActive(active: ActiveWorkout?) {
+        if (active == null) activeFile.delete() else writeAtomically(activeFile, json.encodeToString(ActiveWorkout.serializer(), active))
+    }
+
+    fun loadSettings() = Settings(
+        apiKey = prefs.getString("apiKey", "") ?: "",
+        model = prefs.getString("model", ClaudeCoach.DEFAULT_MODEL) ?: ClaudeCoach.DEFAULT_MODEL,
+        notes = prefs.getString("notes", "") ?: "",
+    )
+
+    fun saveSettings(s: Settings) {
+        prefs.edit().putString("apiKey", s.apiKey.trim()).putString("model", s.model.trim()).putString("notes", s.notes).apply()
+    }
+
+    private fun writeAtomically(file: File, text: String) {
+        val tmp = File(file.parentFile, file.name + ".tmp")
+        tmp.writeText(text)
+        if (!tmp.renameTo(file)) { file.delete(); tmp.renameTo(file) }
+    }
+}
