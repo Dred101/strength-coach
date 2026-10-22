@@ -9,6 +9,9 @@ history, today's energy, the time you have and your recovery data, then logs eve
 2. Tap **RepCoach.apk** to download it, then open it and allow your browser to install apps when asked.
 3. New versions install over the old one; your data stays on the phone.
 
+Phones with Android's Advanced Protection turned on only install apps from the Play Store. For those,
+upload `RepCoach.aab` from the same release to a Google Play internal test track and install from Play.
+
 ## First run
 
 1. **Settings, Import Hevy CSV.** In Hevy: Profile, Settings, Export & Import Data, Export Workouts.
