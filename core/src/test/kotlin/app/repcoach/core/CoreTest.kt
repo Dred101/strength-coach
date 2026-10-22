@@ -41,6 +41,17 @@ class CoreTest {
         assertEquals(2, t.sets)
     }
 
+    @Test fun weightsMoveInTwoAndAHalfKgSteps() {
+        assertEquals(62.5, Progression.roundLoad(61.3))
+        assertEquals(60.0, Progression.roundLoad(61.2))
+        assertEquals(2.5, Exercises.info("Leg Extension (Machine)").incrementKg)
+        assertEquals(2.5, Exercises.info("Squat (Barbell)").incrementKg)
+        // Odd history weights are snapped onto the 2.5 kg grid before the coach suggests them.
+        val odd = HevyCsv.parse(sample.replace(",70,8,", ",71,8,"), ZoneOffset.UTC)
+        assertEquals(70.0, Progression(odd).target("Bench Press (Barbell)", energy = 3).weightKg)
+        assertEquals(72.5, Progression(odd).target("Bench Press (Barbell)", energy = 7).weightKg)
+    }
+
     @Test fun classifiesExercises() {
         assertEquals(Muscle.CHEST, Exercises.info("Incline Bench Press (Smith Machine)").primary)
         assertEquals(Kind.COMPOUND, Exercises.info("Squat (Barbell)").kind)
@@ -61,5 +72,6 @@ class CoreTest {
         plan.exercises.forEach { println("  ${it.name} ${it.sets}x${it.repsMin}-${it.repsMax} @ ${it.weightKg} (${it.reason})") }
         println(CoachContext.build(p, CheckIn(7, 60), null, plan, "").take(3000))
         assertTrue(plan.exercises.size >= 3)
+        plan.exercises.mapNotNull { it.weightKg }.forEach { assertEquals(0.0, it % Progression.STEP_KG, "$it kg") }
     }
 }

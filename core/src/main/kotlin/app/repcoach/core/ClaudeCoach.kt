@@ -48,7 +48,7 @@ class ClaudeCoach(
             val target = progression.target(ex.name, energy, ex.sets)
             val engineWeight = target.weightKg
             ex.copy(
-                weightKg = engineWeight ?: ex.weightKg,
+                weightKg = engineWeight ?: ex.weightKg?.let(Progression::roundLoad),
                 repsMin = if (engineWeight != null) target.repsMin else ex.repsMin,
                 repsMax = if (engineWeight != null) target.repsMax else ex.repsMax,
                 restSeconds = ex.restSeconds.coerceIn(45, 300),
@@ -144,6 +144,7 @@ class ClaudeCoach(
               You may introduce a new exercise when variety or a plateau calls for it.
             - Use the draft's weights, rep ranges and rest times for exercises that have them. For a new
               exercise, set weightKg to null and say in the reason how to choose a starting weight.
+            - All weights are in kilograms and move in steps of 2.5 kg.
             - Each reason is one short sentence the lifter reads in the gym. The summary is two sentences at
               most, saying what today is and why.
             - Order the session with the most demanding compound lifts first.
