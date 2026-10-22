@@ -37,13 +37,16 @@ class Planner(private val progression: Progression) {
         val stalled = stalledCompounds.firstOrNull()
         if (stalled != null) supportFor(stalled.exercise).firstOrNull { it !in used }?.let { picks.add(2.coerceAtMost(picks.size), it) }
 
-        val budget = (checkIn.minutes - 5).coerceAtLeast(15) * 60 // five minutes to warm up
+        // Fit the time available at the pace this lifter actually trains, learned from past sessions.
+        val pace = Pace(progression.workouts)
+        val budget = pace.budgetSeconds(checkIn.minutes)
         val targets = mutableListOf<Target>()
         var spent = 0
         for (name in picks) {
             val t = progression.target(name, energy)
-            val cost = t.sets * (40 + t.restSeconds) + 60 // plus a minute for warm-up sets and setup
-            if (spent + cost > budget && targets.size >= 3) break
+            val cost = pace.exerciseSeconds(t.sets, t.restSeconds)
+            // Skip what doesn't fit, so a shorter exercise further down can still fill the time.
+            if (spent + cost > budget && targets.size >= 3) continue
             targets += t
             spent += cost
         }
@@ -60,7 +63,9 @@ class Planner(private val progression: Progression) {
             // blunted strength gains in Coleman et al. 2024. See docs/RESEARCH.md.
             if (stalledCompounds.size >= 2) append(" Several big lifts have stalled. If you also feel run down, make this a lighter week: about half the sets, same weights, 3 or more reps in reserve.")
         }
-        return SessionPlan(title, summary, targets.map { it.toPlanned() }, source = "rules")
+        val planned = targets.map { it.toPlanned() }
+        val minutes = pace.planMinutes(planned)
+        return SessionPlan(title, "$summary About $minutes minutes at your usual pace.", planned, source = "rules", estimatedMinutes = minutes)
     }
 
     /** Lowers effective energy when recovery data shows poor sleep or an elevated resting HR. */

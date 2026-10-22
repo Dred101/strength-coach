@@ -72,4 +72,6 @@ data class SessionPlan(
     val summary: String,
     val exercises: List<PlannedExercise>,
     val source: String,
+    /** How long the session should take at the lifter's learned pace. */
+    val estimatedMinutes: Int? = null,
 )

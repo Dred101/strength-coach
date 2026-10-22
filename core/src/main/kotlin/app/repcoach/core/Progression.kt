@@ -42,7 +42,7 @@ data class Trend(
  * weekly volume. Claude chooses exercises; this decides the numbers.
  */
 class Progression(workouts: List<Workout>, private val now: Long = System.currentTimeMillis()) {
-    private val workouts = workouts.sortedBy { it.startMillis }
+    val workouts = workouts.sortedBy { it.startMillis }
 
     val exposures: Map<String, List<Exposure>> = buildMap<String, MutableList<Exposure>> {
         for (w in this@Progression.workouts) for (ex in w.exercises) {

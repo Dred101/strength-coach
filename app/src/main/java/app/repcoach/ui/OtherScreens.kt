@@ -42,6 +42,7 @@ import app.repcoach.UiState
 import app.repcoach.core.ClaudeCoach
 import app.repcoach.core.Progression
 import app.repcoach.core.SetType
+import app.repcoach.core.volumeKg
 
 @Composable
 fun HistoryScreen(state: UiState, vm: AppViewModel) {
@@ -59,7 +60,7 @@ fun HistoryScreen(state: UiState, vm: AppViewModel) {
                 Column(Modifier.padding(16.dp)) {
                     Text(w.title, style = MaterialTheme.typography.titleMedium)
                     val minutes = ((w.endMillis - w.startMillis) / 60_000).coerceAtLeast(0)
-                    Text("${formatDate(w.startMillis)} · $minutes min · ${w.exercises.size} exercises", style = MaterialTheme.typography.bodySmall)
+                    Text("${formatDate(w.startMillis)} · $minutes min · ${w.exercises.size} exercises · ${"%,d".format(w.volumeKg().toLong())} kg", style = MaterialTheme.typography.bodySmall)
                     if (open == w.id) {
                         HorizontalDivider(Modifier.padding(vertical = 8.dp))
                         w.exercises.forEach { ex ->
