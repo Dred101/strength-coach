@@ -9,12 +9,12 @@ val buildNumber = System.getenv("GITHUB_RUN_NUMBER")?.toIntOrNull() ?: 1
 
 android {
     namespace = "app.repcoach"
-    compileSdk = 35
+    compileSdk = 36
 
     defaultConfig {
-        applicationId = "app.repcoach"
+        applicationId = "uk.dialogic.repcoach"
         minSdk = 28
-        targetSdk = 35
+        targetSdk = 36
         versionCode = buildNumber
         versionName = "0.1.$buildNumber"
     }

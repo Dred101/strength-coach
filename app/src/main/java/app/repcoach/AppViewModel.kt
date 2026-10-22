@@ -210,6 +210,24 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    /** Adds workouts from a backup made with "Save a backup", skipping any already on the phone. */
+    fun restoreBackup(uri: Uri) = viewModelScope.launch {
+        val result = withContext(Dispatchers.IO) {
+            runCatching {
+                val text = getApplication<Application>().contentResolver.openInputStream(uri)!!.bufferedReader().use { it.readText() }
+                store.parseBackup(text)
+            }
+        }
+        result.onSuccess { restored ->
+            val existing = _state.value.workouts.map { it.id }.toSet()
+            val added = restored.filter { it.id !in existing }
+            saveWorkouts(_state.value.workouts + added)
+            _state.update { it.copy(message = "Restored ${added.size} workouts from the backup.") }
+        }.onFailure { e ->
+            _state.update { it.copy(message = "Couldn't read that backup: ${e.message}") }
+        }
+    }
+
     fun exportTo(uri: Uri) = viewModelScope.launch {
         val ok = withContext(Dispatchers.IO) {
             runCatching {

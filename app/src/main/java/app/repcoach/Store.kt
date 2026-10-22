@@ -42,6 +42,8 @@ class Store(context: Context) {
 
     fun exportJson(workouts: List<Workout>): String = json.encodeToString(listSerializer, workouts)
 
+    fun parseBackup(text: String): List<Workout> = json.decodeFromString(listSerializer, text)
+
     fun loadActive(): ActiveWorkout? =
         if (activeFile.exists()) runCatching { json.decodeFromString(ActiveWorkout.serializer(), activeFile.readText()) }.getOrNull() else null
 

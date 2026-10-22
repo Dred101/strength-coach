@@ -26,16 +26,21 @@ jobs:
         working-directory: core
         run: ../gradlew test
 
+      # The .apk installs directly; the .aab is the file Google Play takes.
       - name: Build the app
-        run: ./gradlew :app:assembleRelease
+        run: ./gradlew :app:assembleRelease :app:bundleRelease
 
-      - name: Name the install file
-        run: cp app/build/outputs/apk/release/app-release.apk RepCoach.apk
+      - name: Name the install files
+        run: |
+          cp app/build/outputs/apk/release/app-release.apk RepCoach.apk
+          cp app/build/outputs/bundle/release/app-release.aab RepCoach.aab
 
       - uses: actions/upload-artifact@v4
         with:
           name: RepCoach
-          path: RepCoach.apk
+          path: |
+            RepCoach.apk
+            RepCoach.aab
 
       # Each build on main becomes a release, so the latest install file is always at
       # https://github.com/Dred101/strength-coach/releases/latest
@@ -44,7 +49,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "build-${{ github.run_number }}" RepCoach.apk \
+          gh release create "build-${{ github.run_number }}" RepCoach.apk RepCoach.aab \
             --title "Rep Coach 0.1.${{ github.run_number }}" \
             --notes "Built from ${GITHUB_SHA::7}: $(git log -1 --pretty=%s)" \
             --latest
