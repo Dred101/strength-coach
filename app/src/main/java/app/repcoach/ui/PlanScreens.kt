@@ -68,7 +68,7 @@ fun HomeScreen(state: UiState, vm: AppViewModel) {
                     val days = Progression.daysBetween(it.startMillis, System.currentTimeMillis())
                     Text("Last session: ${it.title}, " + when (days) { 0 -> "today"; 1 -> "yesterday"; else -> "$days days ago" })
                 }
-                if (state.workouts.isEmpty()) Text("No history yet. Import your Hevy export in Settings to give the coach something to work from.")
+                if (state.workouts.isEmpty()) Text("No history yet. In Settings, import your Hevy export or restore a backup to give the coach something to work from.")
             }
         }
         RecoveryCard(state.recovery, state.healthStatus)

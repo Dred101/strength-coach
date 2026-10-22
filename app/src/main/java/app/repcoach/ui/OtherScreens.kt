@@ -3,7 +3,6 @@ package app.repcoach.ui
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -32,9 +31,6 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.Path
-import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
@@ -44,7 +40,6 @@ import app.repcoach.Settings
 import app.repcoach.UiState
 import app.repcoach.core.Progression
 import app.repcoach.core.SetType
-import java.util.Locale
 
 @Composable
 fun HistoryScreen(state: UiState, vm: AppViewModel) {
@@ -88,57 +83,6 @@ fun HistoryScreen(state: UiState, vm: AppViewModel) {
 }
 
 @Composable
-fun ProgressScreen(state: UiState) {
-    val p = remember(state.workouts) { Progression(state.workouts) }
-    var selected by rememberSaveable { mutableStateOf<String?>(null) }
-    LazyColumn(Modifier.fillMaxSize().padding(horizontal = 12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        item {
-            Column(Modifier.padding(top = 12.dp)) {
-                Text("Progress", style = MaterialTheme.typography.headlineSmall)
-                Text("Best estimated one-rep max per session. Tap a lift for its chart.", style = MaterialTheme.typography.bodySmall)
-            }
-        }
-        items(p.exerciseNames().take(40)) { name ->
-            val t = p.trend(name)
-            val history = p.exposures[name].orEmpty()
-            Card(Modifier.fillMaxWidth().clickable { selected = if (selected == name) null else name }) {
-                Column(Modifier.padding(16.dp)) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text(name, Modifier.weight(1f), style = MaterialTheme.typography.titleSmall)
-                        Text(
-                            (history.lastOrNull()?.bestE1rm?.toInt()?.let { "$it kg" } ?: "") +
-                                (t?.changePercent?.let { "  %+.0f%%".format(Locale.UK, it) } ?: ""),
-                            fontWeight = FontWeight.SemiBold,
-                        )
-                    }
-                    if (t?.plateau == true) Text("Stalled for 8 weeks", color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
-                    if (selected == name && history.size >= 2) {
-                        LineChart(history.map { it.bestE1rm }, Modifier.fillMaxWidth().height(160.dp).padding(top = 12.dp))
-                        Text("${history.size} sessions since ${formatDate(history.first().startMillis).substringBefore(",")}", style = MaterialTheme.typography.bodySmall)
-                    }
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun LineChart(values: List<Double>, modifier: Modifier) {
-    val line = MaterialTheme.colorScheme.primary
-    val grid = MaterialTheme.colorScheme.outlineVariant
-    Canvas(modifier) {
-        val min = values.min()
-        val max = values.max().coerceAtLeast(min + 1)
-        val stepX = size.width / (values.size - 1)
-        fun y(v: Double) = (size.height - ((v - min) / (max - min) * size.height)).toFloat()
-        listOf(0f, size.height / 2, size.height).forEach { drawLine(grid, Offset(0f, it), Offset(size.width, it)) }
-        val path = Path()
-        values.forEachIndexed { i, v -> if (i == 0) path.moveTo(0f, y(v)) else path.lineTo(i * stepX, y(v)) }
-        drawPath(path, line, style = Stroke(width = 4f))
-    }
-}
-
-@Composable
 fun SettingsScreen(state: UiState, vm: AppViewModel) {
     var apiKey by remember(state.settings) { mutableStateOf(state.settings.apiKey) }
     var model by remember(state.settings) { mutableStateOf(state.settings.model) }
@@ -147,6 +91,7 @@ fun SettingsScreen(state: UiState, vm: AppViewModel) {
     val importer = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? -> uri?.let(vm::importHevy) }
     val exporter = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri: Uri? -> uri?.let(vm::exportTo) }
     val restorer = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? -> uri?.let(vm::restoreBackup) }
+    val autoBackup = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri: Uri? -> uri?.let(vm::enableAutoBackup) }
     val healthPermissions = rememberLauncherForActivityResult(PermissionController.createRequestPermissionResultContract()) { vm.refreshHealth() }
 
     Column(
@@ -183,7 +128,15 @@ fun SettingsScreen(state: UiState, vm: AppViewModel) {
         Text("${state.workouts.size} workouts on this phone.")
         OutlinedButton(onClick = { importer.launch(arrayOf("text/*", "application/octet-stream", "*/*")) }) { Text("Import Hevy CSV") }
         Text("In Hevy: Profile, Settings, Export & Import Data, Export Workouts. Importing again replaces the earlier Hevy data.", style = MaterialTheme.typography.bodySmall)
-        OutlinedButton(onClick = { exporter.launch("repcoach-backup.json") }) { Text("Save a backup") }
+        Text("Automatic backup: " + if (state.autoBackup) "on" else "off", fontWeight = FontWeight.SemiBold)
+        Text(
+            "Pick a file once, ideally in Google Drive, and the app rewrites it after every workout. " +
+                "If the app is ever reinstalled, use Restore a backup and choose that file.",
+            style = MaterialTheme.typography.bodySmall,
+        )
+        if (state.autoBackup) OutlinedButton(onClick = { vm.disableAutoBackup() }) { Text("Turn off automatic backup") }
+        else Button(onClick = { autoBackup.launch("repcoach-autobackup.json") }) { Text("Turn on automatic backup") }
+        OutlinedButton(onClick = { exporter.launch("repcoach-backup.json") }) { Text("Save a one-off backup") }
         OutlinedButton(onClick = { restorer.launch(arrayOf("application/json", "application/octet-stream", "*/*")) }) { Text("Restore a backup") }
     }
 }
