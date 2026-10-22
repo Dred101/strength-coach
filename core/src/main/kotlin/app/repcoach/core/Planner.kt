@@ -50,7 +50,10 @@ class Planner(private val progression: Progression) {
 
         val title = if (extraSession) "Variety session" else "Full body ${"ABC"[progression.recent(21).size % 3]}"
         val summary = buildString {
-            append(if (extraSession) "You've already done 3 sessions this week, so today mixes things up." else "Full-body day.")
+            append(
+                if (extraSession) "You've already done 3 sessions this week, so today mixes things up and tops up the muscles with the fewest sets."
+                else "Full-body day ${progression.sessionsThisWeek() + 1} of 3: training every muscle two or three times a week helps strength most."
+            )
             if (energy <= 4) append(" Energy is low, so volume is trimmed and nothing goes up in weight.")
             if (stalled != null) append(" ${stalled.exercise} has stalled, so there's extra support work for it.")
             // Deloads cut volume and effort rather than stopping training: a full week off slightly

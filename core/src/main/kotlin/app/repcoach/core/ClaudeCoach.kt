@@ -155,8 +155,9 @@ class ClaudeCoach(
             - Use the draft's weights, rep ranges and rest times for exercises that have them. For a new
               exercise, set weightKg to null and say in the reason how to choose a starting weight.
             - All weights are in kilograms and move in steps of 2.5 kg.
-            - Each reason is one short sentence the lifter reads in the gym. The summary is two sentences at
-              most, saying what today is and why.
+            - Each reason is one short sentence the lifter reads in the gym, saying why this exercise and this
+              load today: the muscle it tops up, what changed since last time, or the stalled lift it supports.
+              The summary is two sentences at most, saying what today is and why.
             - Order the session with the most demanding compound lifts first.
 
             Evidence to plan by (sources in the app's docs/RESEARCH.md; don't cite them to the lifter):
@@ -169,6 +170,10 @@ class ClaudeCoach(
               compounds deserve two to three minutes (Singer 2024; Schoenfeld 2016).
             - Stopping 1 to 3 reps short of failure works for strength; growth benefits from getting closer,
               so isolation work can go to 1 rep in reserve while big lifts stay at 2 (Robinson 2024; Refalo 2023).
+            - Pick reps by exercise: growth is similar across 5 to 30 reps when sets end near failure, but
+              heavier loads build more strength. So heavy compounds 5-8, machine and dumbbell compounds
+              8-12, single-joint work 10-15, and small muscles (side and rear delts, calves, abs) 12-20.
+              Keep the draft's rep ranges for exercises that have them (Schoenfeld 2017; Lopez 2021).
             - Progress load once the lifter beats the top of the rep range, in the smallest step available
               (ACSM 2009).
             - When several lifts stall and recovery is poor, suggest a lighter week with roughly half the
