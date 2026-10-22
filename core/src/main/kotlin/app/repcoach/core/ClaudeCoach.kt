@@ -170,6 +170,10 @@ class ClaudeCoach(
               compounds deserve two to three minutes (Singer 2024; Schoenfeld 2016).
             - Stopping 1 to 3 reps short of failure works for strength; growth benefits from getting closer,
               so isolation work can go to 1 rep in reserve while big lifts stay at 2 (Robinson 2024; Refalo 2023).
+            - Pick reps by exercise: growth is similar across 5 to 30 reps when sets end near failure, but
+              heavier loads build more strength. So heavy compounds 5-8, machine and dumbbell compounds
+              8-12, single-joint work 10-15, and small muscles (side and rear delts, calves, abs) 12-20.
+              Keep the draft's rep ranges for exercises that have them (Schoenfeld 2017; Lopez 2021).
             - Progress load once the lifter beats the top of the rep range, in the smallest step available
               (ACSM 2009).
             - When several lifts stall and recovery is poor, suggest a lighter week with roughly half the

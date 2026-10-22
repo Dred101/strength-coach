@@ -54,6 +54,15 @@ class SetPlanTest {
         assertEquals(null, SetPlan.nextUnfinished(listOf(bench), mapOf("Bench Press (Barbell)" to done), "Bench Press (Barbell)"))
     }
 
+    @Test fun choosesRepRangeByExercise() {
+        assertEquals(5..8, Exercises.info("Bench Press (Barbell)").repRange)
+        assertEquals(8..12, Exercises.info("Incline Bench Press (Dumbbell)").repRange)
+        assertEquals(10..15, Exercises.info("Hammer Curl (Dumbbell)").repRange)
+        assertEquals(12..20, Exercises.info("Lateral Raise (Dumbbell)").repRange)
+        assertEquals(12..20, Exercises.info("Calf Raise (Machine)").repRange)
+        assertTrue(Exercises.info("Lateral Raise (Dumbbell)").repReason.startsWith("Light 12–20"))
+    }
+
     @Test fun isolationStopsOneRepShort() {
         assertEquals(1, Exercises.info("Lateral Raise (Dumbbell)").targetRir)
         assertEquals(2, Exercises.info("Squat (Barbell)").targetRir)

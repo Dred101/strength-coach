@@ -228,6 +228,7 @@ private fun ExerciseCard(
                 fontWeight = FontWeight.SemiBold,
             )
             if (e.reason.isNotBlank()) Text(e.reason, style = MaterialTheme.typography.bodySmall)
+            Text("Reps: " + Exercises.info(e.name).repReason, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             Text("Rest: " + SetPlan.restReason(e), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
 
             if (warmups.isNotEmpty() && logged.isEmpty()) {

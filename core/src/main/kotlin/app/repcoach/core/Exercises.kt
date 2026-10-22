@@ -10,11 +10,30 @@ data class ExerciseInfo(
     val secondary: Set<Muscle> = emptySet(),
     val kind: Kind,
 ) {
+    /** Small muscles worked in isolation, where heavy low-rep sets mostly load the joints. */
+    private val smallMuscleIsolation: Boolean
+        get() = kind == Kind.ISOLATION && primary in setOf(Muscle.SHOULDERS, Muscle.REAR_DELTS, Muscle.CALVES, Muscle.CORE)
+
+    /**
+     * Growth is similar from about 5 to 30 reps when sets end near failure, while heavier loads build
+     * more maximal strength (Schoenfeld et al. 2017; Lopez et al. 2021). So the big lifts you want to
+     * get stronger on stay heavy, and smaller or riskier movements use lighter loads for more reps.
+     */
     val repRange: IntRange
-        get() = when (kind) {
-            Kind.COMPOUND -> 5..8
-            Kind.ACCESSORY -> 8..12
-            Kind.ISOLATION -> 10..15
+        get() = when {
+            kind == Kind.COMPOUND -> 5..8
+            kind == Kind.ACCESSORY -> 8..12
+            smallMuscleIsolation -> 12..20
+            else -> 10..15
+        }
+
+    /** Why this exercise uses its rep range, in a sentence the lifter reads in the gym. */
+    val repReason: String
+        get() = when {
+            kind == Kind.COMPOUND -> "Heavy 5–8: big lifts are where strength is built, and heavier loads build it best"
+            kind == Kind.ACCESSORY -> "Moderate 8–12: grows muscle as well as heavy work, with less joint stress and fatigue"
+            smallMuscleIsolation -> "Light 12–20: small muscles grow as well with light loads near failure, and joints stay happy"
+            else -> "10–15: single-joint work grows muscle well with lighter loads taken close to failure"
         }
 
     /** Smallest sensible jump in load once the top of the rep range is reached. */
