@@ -155,7 +155,7 @@ fun RecordsScreen(state: UiState) {
 }
 
 @Composable
-private fun RecordLine(r: PersonalRecord, showExercise: Boolean) {
+internal fun RecordLine(r: PersonalRecord, showExercise: Boolean) {
     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         Box(Modifier.size(8.dp).background(RecordGold, CircleShape))
         Column(Modifier.weight(1f)) {

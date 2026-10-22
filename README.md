@@ -40,3 +40,7 @@ as a release for each build on `main`. To build locally you need the Android SDK
 
 The app is signed with `app/personal.keystore`, a key for personal sideloading only. Replace it with a
 private key kept out of the repo before publishing anywhere.
+
+## The research behind the coaching
+
+The coaching rules and Claude's instructions follow peer-reviewed studies on volume, frequency, rest, effort and deloads. See [docs/RESEARCH.md](docs/RESEARCH.md) for each rule and its source.

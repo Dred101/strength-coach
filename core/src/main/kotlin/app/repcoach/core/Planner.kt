@@ -33,7 +33,8 @@ class Planner(private val progression: Progression) {
             .toMutableList()
 
         // Add a supporting lift for the first plateaued compound that isn't already covered.
-        val stalled = progression.plateaus().firstOrNull { Exercises.info(it.exercise).kind == Kind.COMPOUND }
+        val stalledCompounds = progression.plateaus().filter { Exercises.info(it.exercise).kind == Kind.COMPOUND }
+        val stalled = stalledCompounds.firstOrNull()
         if (stalled != null) supportFor(stalled.exercise).firstOrNull { it !in used }?.let { picks.add(2.coerceAtMost(picks.size), it) }
 
         val budget = (checkIn.minutes - 5).coerceAtLeast(15) * 60 // five minutes to warm up
@@ -52,6 +53,9 @@ class Planner(private val progression: Progression) {
             append(if (extraSession) "You've already done 3 sessions this week, so today mixes things up." else "Full-body day.")
             if (energy <= 4) append(" Energy is low, so volume is trimmed and nothing goes up in weight.")
             if (stalled != null) append(" ${stalled.exercise} has stalled, so there's extra support work for it.")
+            // Deloads cut volume and effort rather than stopping training: a full week off slightly
+            // blunted strength gains in Coleman et al. 2024. See docs/RESEARCH.md.
+            if (stalledCompounds.size >= 2) append(" Several big lifts have stalled. If you also feel run down, make this a lighter week: about half the sets, same weights, 3 or more reps in reserve.")
         }
         return SessionPlan(title, summary, targets.map { it.toPlanned() }, source = "rules")
     }
@@ -102,7 +106,7 @@ class Planner(private val progression: Progression) {
 
 fun Target.toPlanned() = PlannedExercise(
     name = exercise, sets = sets, repsMin = repsMin, repsMax = repsMax,
-    weightKg = weightKg, targetRir = targetRir, restSeconds = restSeconds, reason = note,
+    weightKg = weightKg, targetRir = targetRir, restSeconds = restSeconds, reason = note, targetReps = targetReps,
 )
 
 fun Double.oneDecimal(): Double = (this * 10).roundToInt() / 10.0
