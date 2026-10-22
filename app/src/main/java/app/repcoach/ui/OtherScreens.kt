@@ -21,6 +21,7 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -38,6 +39,7 @@ import androidx.health.connect.client.PermissionController
 import app.repcoach.AppViewModel
 import app.repcoach.Settings
 import app.repcoach.UiState
+import app.repcoach.core.ClaudeCoach
 import app.repcoach.core.Progression
 import app.repcoach.core.SetType
 
@@ -106,8 +108,19 @@ fun SettingsScreen(state: UiState, vm: AppViewModel) {
             value = apiKey, onValueChange = { apiKey = it }, label = { Text("Claude API key") }, singleLine = true,
             visualTransformation = PasswordVisualTransformation(), modifier = Modifier.fillMaxWidth(),
         )
-        Text("Create one at console.anthropic.com. It's stored only on this phone.", style = MaterialTheme.typography.bodySmall)
-        OutlinedTextField(value = model, onValueChange = { model = it }, label = { Text("Model") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+        Text(
+            "Create one at console.anthropic.com: add credit under Billing, set a monthly limit under Limits, then API Keys, Create Key. " +
+                "It's stored only on this phone. Without a key the built-in rules plan your sessions for free.",
+            style = MaterialTheme.typography.bodySmall,
+        )
+        Text("Model", style = MaterialTheme.typography.labelLarge)
+        ClaudeCoach.MODELS.forEach { (id, label) ->
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().clickable { model = id }) {
+                RadioButton(selected = model == id, onClick = { model = id })
+                Text(label)
+            }
+        }
+        Text("Costs are rough estimates for one session plan.", style = MaterialTheme.typography.bodySmall)
         OutlinedTextField(
             value = notes, onValueChange = { notes = it }, modifier = Modifier.fillMaxWidth(), minLines = 3,
             label = { Text("Notes for the coach") },
