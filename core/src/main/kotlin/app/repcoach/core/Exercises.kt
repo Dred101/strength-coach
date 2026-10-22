@@ -21,12 +21,25 @@ data class ExerciseInfo(
     val incrementKg: Double
         get() = Progression.STEP_KG
 
+    /**
+     * Rest between working sets. Growth benefits from resting more than 60 s with no clear gain past
+     * 90 s (Singer et al. 2024); heavy compounds get longer so strength sets aren't cut short
+     * (Schoenfeld et al. 2016). See docs/RESEARCH.md.
+     */
     val restSeconds: Int
         get() = when (kind) {
             Kind.COMPOUND -> 150
-            Kind.ACCESSORY -> 105
-            Kind.ISOLATION -> 75
+            Kind.ACCESSORY -> 120
+            Kind.ISOLATION -> 90
         }
+
+    /**
+     * Reps in reserve on a normal day. Growth improves as sets end closer to failure while strength
+     * barely changes (Robinson et al. 2024), so isolation work, which is safe to push, stops one rep
+     * short and compounds stop two short.
+     */
+    val targetRir: Int
+        get() = if (kind == Kind.ISOLATION) 1 else 2
 }
 
 /**

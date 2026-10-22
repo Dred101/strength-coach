@@ -91,6 +91,7 @@ fun SettingsScreen(state: UiState, vm: AppViewModel) {
     val importer = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? -> uri?.let(vm::importHevy) }
     val exporter = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri: Uri? -> uri?.let(vm::exportTo) }
     val restorer = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? -> uri?.let(vm::restoreBackup) }
+    val hevyExporter = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("text/csv")) { uri: Uri? -> uri?.let(vm::exportForHevy) }
     val autoBackup = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri: Uri? -> uri?.let(vm::enableAutoBackup) }
     val healthPermissions = rememberLauncherForActivityResult(PermissionController.createRequestPermissionResultContract()) { vm.refreshHealth() }
 
@@ -138,5 +139,14 @@ fun SettingsScreen(state: UiState, vm: AppViewModel) {
         else Button(onClick = { autoBackup.launch("repcoach-autobackup.json") }) { Text("Turn on automatic backup") }
         OutlinedButton(onClick = { exporter.launch("repcoach-backup.json") }) { Text("Save a one-off backup") }
         OutlinedButton(onClick = { restorer.launch(arrayOf("application/json", "application/octet-stream", "*/*")) }) { Text("Restore a backup") }
+
+        HorizontalDivider()
+        Text("Going back to Hevy", style = MaterialTheme.typography.titleMedium)
+        OutlinedButton(onClick = { hevyExporter.launch("repcoach-for-hevy.csv") }) { Text("Export workouts for Hevy") }
+        Text(
+            "Saves the workouts you logged here (not the ones imported from Hevy, which Hevy already has) as a Strong-format CSV. " +
+                "In Hevy: Profile, Settings, Export & Import Data, Import data, Import Strong CSV. Hevy allows one import, so do this once, when you switch back.",
+            style = MaterialTheme.typography.bodySmall,
+        )
     }
 }

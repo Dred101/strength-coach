@@ -62,6 +62,8 @@ data class PlannedExercise(
     val targetRir: Int,
     val restSeconds: Int,
     val reason: String = "",
+    /** Reps to aim for on the first working set; null means the top of the range. */
+    val targetReps: Int? = null,
 )
 
 @Serializable

@@ -24,6 +24,8 @@ data class Target(
     val targetRir: Int,
     val restSeconds: Int,
     val note: String,
+    /** Reps to aim for on the first working set; null means the top of the range. */
+    val targetReps: Int? = null,
 )
 
 data class Trend(
@@ -67,7 +69,7 @@ class Progression(workouts: List<Workout>, private val now: Long = System.curren
         val range = info.repRange
         val low = energy <= 4
         val high = energy >= 8
-        val rir = if (low) 3 else 2
+        val rir = info.targetRir + if (low) 1 else 0
         val sets = (if (low) baseSets - 1 else baseSets).coerceAtLeast(2)
         val last = exposures[exercise]?.lastOrNull()
             ?: return Target(exercise, sets, range.first, range.last, null, rir, info.restSeconds,
@@ -81,23 +83,23 @@ class Progression(workouts: List<Workout>, private val now: Long = System.curren
 
         return when {
             top <= 0.0 -> Target(exercise, sets, range.first, range.last, null, rir, info.restSeconds,
-                "Bodyweight: aim for ${min(bestReps + 1, range.last + 5)} reps.")
+                "Bodyweight: aim for ${min(bestReps + 1, range.last + 5)} reps.", targetReps = min(bestReps + 1, range.last + 5))
             bestReps < range.first -> {
                 // Last time was heavier than this rep range; set the load from estimated 1RM instead.
                 val w = roundLoad(weightFor(last.bestE1rm, range.first, rir))
                 Target(exercise, sets, range.first, range.last, w, rir, info.restSeconds,
-                    "Working in the ${range.first} to ${range.last} rep range at ${fmt(w)} kg.")
+                    "Working in the ${range.first} to ${range.last} rep range at ${fmt(w)} kg.", targetReps = range.first)
             }
             allHitTop && !low -> {
                 val w = roundLoad(held + info.incrementKg)
                 Target(exercise, sets, range.first, range.last, w, rir, info.restSeconds,
-                    "Hit ${range.last} reps on every set last time: up to ${fmt(w)} kg.")
+                    "Hit ${range.last} reps on every set last time: up to ${fmt(w)} kg.", targetReps = range.first)
             }
             else -> {
                 val goal = min(bestReps + 1, range.last)
                 val note = if (low) "Low energy: hold ${fmt(held)} kg and leave ${rir} reps in reserve."
                 else "Same weight, aim for $goal reps on your first set" + (if (high) " and beat last time on the others." else ".")
-                Target(exercise, sets, range.first, range.last, held, rir, info.restSeconds, note)
+                Target(exercise, sets, range.first, range.last, held, rir, info.restSeconds, note, targetReps = if (low) min(bestReps, range.last) else goal)
             }
         }
     }
@@ -162,6 +164,12 @@ class Progression(workouts: List<Workout>, private val now: Long = System.curren
         }
 
         fun weightFor(e1rm: Double, reps: Int, rir: Int): Double = e1rm / (1 + (reps + rir) / 30.0)
+
+        /**
+         * Weekly hard sets per muscle the coach aims for at minimum. Gains keep rising with more sets,
+         * with diminishing returns (Schoenfeld et al. 2017; Pelland et al. 2026).
+         */
+        const val WEEKLY_SET_TARGET = 10
 
         /** Every weight the app suggests or records moves in steps of this size. */
         const val STEP_KG = 2.5

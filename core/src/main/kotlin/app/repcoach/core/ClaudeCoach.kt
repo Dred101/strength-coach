@@ -51,6 +51,7 @@ class ClaudeCoach(
                 weightKg = engineWeight ?: ex.weightKg?.let(Progression::roundLoad),
                 repsMin = if (engineWeight != null) target.repsMin else ex.repsMin,
                 repsMax = if (engineWeight != null) target.repsMax else ex.repsMax,
+                targetReps = if (engineWeight != null) target.targetReps else null,
                 restSeconds = ex.restSeconds.coerceIn(45, 300),
             )
         }
@@ -148,6 +149,24 @@ class ClaudeCoach(
             - Each reason is one short sentence the lifter reads in the gym. The summary is two sentences at
               most, saying what today is and why.
             - Order the session with the most demanding compound lifts first.
+
+            Evidence to plan by (sources in the app's docs/RESEARCH.md; don't cite them to the lifter):
+            - Weekly volume matters most for growth: aim for at least 10 hard sets per muscle per week,
+              counting a set as half for muscles that only assist. More sets still help but with
+              diminishing returns, and strength gains flatten sooner than size (Schoenfeld 2017; Pelland 2026).
+            - Training each muscle two or three times a week helps strength more than size, which is why
+              the week is full-body (Schoenfeld 2016; Pelland 2026).
+            - Rest more than 60 seconds between sets; past 90 seconds adds little for growth, but heavy
+              compounds deserve two to three minutes (Singer 2024; Schoenfeld 2016).
+            - Stopping 1 to 3 reps short of failure works for strength; growth benefits from getting closer,
+              so isolation work can go to 1 rep in reserve while big lifts stay at 2 (Robinson 2024; Refalo 2023).
+            - Progress load once the lifter beats the top of the rep range, in the smallest step available
+              (ACSM 2009).
+            - When several lifts stall and recovery is poor, suggest a lighter week with roughly half the
+              sets and more reps in reserve rather than time off; a full week off slightly reduced strength
+              gains in trained lifters (Bell 2023; Coleman 2024).
+            - A short or late night measurably lowers performance, especially later in the day, so trim
+              volume rather than load after poor sleep (Craven 2022).
         """.trimIndent()
     }
 }
@@ -189,6 +208,9 @@ object CoachContext {
         appendLine()
         appendLine("## Hard sets per muscle, last 7 days")
         appendLine(p.weeklyVolume().entries.joinToString(", ") { "${it.key.name.lowercase()} ${it.value.oneDecimal()}" })
+        p.weeklyVolume().filterValues { it < Progression.WEEKLY_SET_TARGET }.keys.takeIf { it.isNotEmpty() }?.let { low ->
+            appendLine("Below ${Progression.WEEKLY_SET_TARGET} sets so far: " + low.joinToString(", ") { it.name.lowercase() })
+        }
         appendLine("Days since trained: " + p.daysSinceMuscle().entries.joinToString(", ") {
             "${it.key.name.lowercase()} ${it.value ?: "never"}"
         })

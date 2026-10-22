@@ -11,13 +11,14 @@ import app.repcoach.core.ExerciseLog
 import app.repcoach.core.Exercises
 import app.repcoach.core.HevyCsv
 import app.repcoach.core.LoggedSet
-import app.repcoach.core.PlannedExercise
 import app.repcoach.core.Planner
 import app.repcoach.core.Progression
 import app.repcoach.core.Recovery
 import app.repcoach.core.Records
 import app.repcoach.core.SessionPlan
+import app.repcoach.core.StrongCsv
 import app.repcoach.core.Workout
+import app.repcoach.core.toPlanned
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -158,7 +159,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         val a = _state.value.active ?: return
         if (a.plan.exercises.any { it.name == name }) return
         val target = Progression(_state.value.workouts).target(name, a.energy)
-        val planned = PlannedExercise(name, target.sets, target.repsMin, target.repsMax, target.weightKg, target.targetRir, target.restSeconds, target.note)
+        val planned = target.toPlanned()
         saveActive(a.copy(plan = a.plan.copy(exercises = a.plan.exercises + planned)))
     }
 
@@ -172,7 +173,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             .filter { it !in inPlan && Exercises.info(it).primary == info.primary }
         val next = candidates.firstOrNull { Exercises.info(it).kind == info.kind } ?: candidates.firstOrNull() ?: return
         val t = p.target(next, a.energy)
-        val replacement = PlannedExercise(next, t.sets, t.repsMin, t.repsMax, t.weightKg, t.targetRir, t.restSeconds, "Swapped in for $old. ${t.note}")
+        val replacement = t.toPlanned().copy(reason = "Swapped in for $old. ${t.note}")
         saveActive(a.copy(plan = a.plan.copy(exercises = a.plan.exercises.map { if (it.name == old) replacement else it })))
     }
 
@@ -259,6 +260,23 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             }.isSuccess
         }
         _state.update { it.copy(message = if (ok) "Backup saved." else "Couldn't save the backup.") }
+    }
+
+    /** Writes the workouts logged in this app (not ones imported from Hevy) as a CSV Hevy can import. */
+    fun exportForHevy(uri: Uri) = viewModelScope.launch {
+        val mine = _state.value.workouts.filter { it.source != "hevy" }
+        val ok = mine.isNotEmpty() && withContext(Dispatchers.IO) {
+            runCatching {
+                getApplication<Application>().contentResolver.openOutputStream(uri)!!.bufferedWriter().use { it.write(StrongCsv.export(mine)) }
+            }.isSuccess
+        }
+        _state.update {
+            it.copy(message = when {
+                mine.isEmpty() -> "No workouts logged in Rep Coach yet, so there's nothing to send to Hevy."
+                ok -> "Saved ${mine.size} workouts for Hevy."
+                else -> "Couldn't save the file."
+            })
+        }
     }
 
     /** Turns on automatic backup to a document the user just created, and writes it straight away. */

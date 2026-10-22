@@ -5,6 +5,7 @@ package app.repcoach.ui
 import android.content.Context
 import android.os.VibrationEffect
 import android.os.Vibrator
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
@@ -51,6 +52,7 @@ import app.repcoach.core.Exercises
 import app.repcoach.core.LoggedSet
 import app.repcoach.core.PlannedExercise
 import app.repcoach.core.Progression
+import app.repcoach.core.SetPlan
 import app.repcoach.core.SetType
 import kotlinx.coroutines.delay
 
@@ -59,6 +61,7 @@ fun WorkoutScreen(state: UiState, vm: AppViewModel) {
     val active = state.active ?: return
     var confirmFinish by remember { mutableStateOf(false) }
     var adding by remember { mutableStateOf(false) }
+    var historyFor by remember { mutableStateOf<String?>(null) }
 
     // Keep the screen on while training so the rest timer stays visible.
     val view = LocalView.current
@@ -91,6 +94,7 @@ fun WorkoutScreen(state: UiState, vm: AppViewModel) {
                     onLog = { vm.logSet(e.name, it, e.restSeconds) },
                     onUndo = { vm.removeLastSet(e.name) },
                     onSwap = { vm.swapExercise(e.name) },
+                    onHistory = { historyFor = e.name },
                 )
             }
             item {
@@ -116,6 +120,8 @@ fun WorkoutScreen(state: UiState, vm: AppViewModel) {
             },
         )
     }
+
+    historyFor?.let { ExerciseHistoryDialog(it, state.workouts, onDismiss = { historyFor = null }) }
 
     if (adding) AddExerciseDialog(state, onPick = { adding = false; vm.addExercise(it) }, onDismiss = { adding = false })
 }
@@ -174,10 +180,17 @@ private fun ExerciseCard(
     onLog: (LoggedSet) -> Unit,
     onUndo: () -> Unit,
     onSwap: () -> Unit,
+    onHistory: () -> Unit,
 ) {
     val lastSet = logged.lastOrNull()
-    var weight by remember(e.name) { mutableStateOf(e.weightKg?.let { Progression.fmt(it) } ?: "") }
-    var reps by remember(e.name) { mutableStateOf(e.repsMax.toString()) }
+    val upcoming = remember(e, logged) { SetPlan.remaining(e, logged) }
+    val warmups = remember(e) { SetPlan.warmups(e) }
+    val next = upcoming.firstOrNull()
+    // Each logged set re-plans the rest, so the inputs refill with the next suggested set.
+    var weight by remember(e.name, logged.size) {
+        mutableStateOf((next?.weightKg ?: lastSet?.weightKg?.takeIf { it > 0 })?.let { Progression.fmt(it) } ?: "")
+    }
+    var reps by remember(e.name, logged.size) { mutableStateOf((next?.reps ?: lastSet?.reps ?: e.repsMax).toString()) }
     var rir by remember(e.name) { mutableIntStateOf(e.targetRir) }
     val done = logged.count { it.type != SetType.WARMUP } >= e.sets
 
@@ -189,18 +202,34 @@ private fun ExerciseCard(
     ) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(e.name, style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
+                Text(e.name, style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f).clickable(onClick = onHistory))
+                TextButton(onClick = onHistory) { Text("History") }
                 if (logged.isEmpty()) TextButton(onClick = onSwap) { Text("Swap") }
             }
-            Text("Target: ${prescription(e)}", fontWeight = FontWeight.SemiBold)
+            Text(
+                "${e.sets} sets of ${if (e.repsMin == e.repsMax) "${e.repsMin}" else "${e.repsMin}–${e.repsMax}"} reps, " +
+                    "${e.targetRir} in reserve, rest ${e.restSeconds / 60}:%02d".format(e.restSeconds % 60),
+                fontWeight = FontWeight.SemiBold,
+            )
             if (e.reason.isNotBlank()) Text(e.reason, style = MaterialTheme.typography.bodySmall)
 
+            if (warmups.isNotEmpty() && logged.isEmpty()) {
+                Text("Warm-up: " + warmups.joinToString(", ") { "${kg(it.weightKg)} × ${it.reps}" }, style = MaterialTheme.typography.bodySmall)
+            }
+            var workingNumber = 0
             logged.forEachIndexed { i, s ->
-                Text("Set ${i + 1}: ${Progression.fmt(s.weightKg)} kg × ${s.reps}" + (s.rir?.let { ", ${it.toInt()} in reserve" } ?: "") +
-                    if (s.type == SetType.WARMUP) " (warm-up)" else "")
+                val label = if (s.type == SetType.WARMUP) "Warm-up" else "Set ${++workingNumber}"
+                Text("✓ $label: ${Progression.fmt(s.weightKg)} kg × ${s.reps}" + (s.rir?.let { ", ${it.toInt()} in reserve" } ?: ""))
                 badges.getOrNull(i)?.takeIf { it.isNotEmpty() }?.let {
                     Text("🏆 New record: $it", color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodySmall)
                 }
+            }
+            upcoming.forEachIndexed { i, s ->
+                Text(
+                    "Set ${workingNumber + i + 1}: ${kg(s.weightKg)} × ${s.reps}" + if (s.note.isNotBlank()) " · ${s.note}" else "",
+                    fontWeight = if (i == 0) FontWeight.Bold else FontWeight.Normal,
+                    color = if (i == 0) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                )
             }
 
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
