@@ -34,7 +34,7 @@ import androidx.compose.ui.unit.dp
 import app.repcoach.AppViewModel
 import app.repcoach.Screen
 
-private val tabs = listOf(Screen.HOME to "Today", Screen.HISTORY to "History", Screen.PROGRESS to "Progress", Screen.SETTINGS to "Settings")
+private val tabs = listOf(Screen.HOME to "Today", Screen.HISTORY to "History", Screen.PROGRESS to "Charts", Screen.RECORDS to "Records", Screen.SETTINGS to "Settings")
 
 @Composable
 fun App(vm: AppViewModel) {
@@ -68,6 +68,7 @@ fun App(vm: AppViewModel) {
                         Screen.WORKOUT -> WorkoutScreen(state, vm)
                         Screen.HISTORY -> HistoryScreen(state, vm)
                         Screen.PROGRESS -> ProgressScreen(state)
+                        Screen.RECORDS -> RecordsScreen(state)
                         Screen.SETTINGS -> SettingsScreen(state, vm)
                     }
                 }

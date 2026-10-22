@@ -80,9 +80,14 @@ fun WorkoutScreen(state: UiState, vm: AppViewModel) {
                 }
             }
             items(active.plan.exercises, key = { it.name }) { e ->
+                val logged = active.logged[e.name].orEmpty()
+                val badges = remember(state.workouts, logged) {
+                    logged.indices.map { i -> vm.brokenRecords(e.name, logged.take(i), logged[i]).joinToString(", ") { it.title } }
+                }
                 ExerciseCard(
                     e = e,
-                    logged = active.logged[e.name].orEmpty(),
+                    logged = logged,
+                    badges = badges,
                     onLog = { vm.logSet(e.name, it, e.restSeconds) },
                     onUndo = { vm.removeLastSet(e.name) },
                     onSwap = { vm.swapExercise(e.name) },
@@ -165,6 +170,7 @@ private fun vibrate(context: Context) {
 private fun ExerciseCard(
     e: PlannedExercise,
     logged: List<LoggedSet>,
+    badges: List<String>,
     onLog: (LoggedSet) -> Unit,
     onUndo: () -> Unit,
     onSwap: () -> Unit,
@@ -192,6 +198,9 @@ private fun ExerciseCard(
             logged.forEachIndexed { i, s ->
                 Text("Set ${i + 1}: ${Progression.fmt(s.weightKg)} kg × ${s.reps}" + (s.rir?.let { ", ${it.toInt()} in reserve" } ?: "") +
                     if (s.type == SetType.WARMUP) " (warm-up)" else "")
+                badges.getOrNull(i)?.takeIf { it.isNotEmpty() }?.let {
+                    Text("🏆 New record: $it", color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodySmall)
+                }
             }
 
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {

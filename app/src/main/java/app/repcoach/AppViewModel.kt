@@ -14,6 +14,7 @@ import app.repcoach.core.PlannedExercise
 import app.repcoach.core.Planner
 import app.repcoach.core.Progression
 import app.repcoach.core.Recovery
+import app.repcoach.core.Records
 import app.repcoach.core.SessionPlan
 import app.repcoach.core.Workout
 import kotlinx.coroutines.Dispatchers
@@ -24,7 +25,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
-enum class Screen { HOME, CHECK_IN, PLAN, WORKOUT, HISTORY, PROGRESS, SETTINGS }
+enum class Screen { HOME, CHECK_IN, PLAN, WORKOUT, HISTORY, PROGRESS, RECORDS, SETTINGS }
 
 data class UiState(
     val screen: Screen = Screen.HOME,
@@ -117,8 +118,21 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
 
     fun logSet(exercise: String, set: LoggedSet, restSeconds: Int) {
         val a = _state.value.active ?: return
-        val sets = a.logged[exercise].orEmpty() + set
-        saveActive(a.copy(logged = a.logged + (exercise to sets), restEndsAt = System.currentTimeMillis() + restSeconds * 1000L))
+        val before = a.logged[exercise].orEmpty()
+        val broken = brokenRecords(exercise, before, set)
+        saveActive(a.copy(logged = a.logged + (exercise to before + set), restEndsAt = System.currentTimeMillis() + restSeconds * 1000L))
+        if (broken.isNotEmpty()) _state.update { it.copy(message = "New record! $exercise: " + broken.joinToString(", ") { r -> r.title }) }
+    }
+
+    /** Records this set breaks, measured against history plus the sets already logged today. */
+    fun brokenRecords(exercise: String, earlierToday: List<LoggedSet>, set: LoggedSet): List<app.repcoach.core.PersonalRecord> {
+        val history = _state.value.workouts.mapNotNull { w ->
+            w.exercises.filter { it.name == exercise }.takeIf { it.isNotEmpty() }?.let { w.copy(exercises = it) }
+        }
+        if (history.isEmpty()) return emptyList()
+        val today = Workout("today", "", Long.MAX_VALUE, Long.MAX_VALUE, listOf(ExerciseLog(exercise, earlierToday)))
+        val current = Records.all(if (earlierToday.isEmpty()) history else history + today)[exercise].orEmpty()
+        return Records.brokenBy(set, exercise, current)
     }
 
     fun removeLastSet(exercise: String) {
@@ -172,10 +186,17 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                 exercises = exercises,
                 energy = a.energy,
             )
+            val records = Records.newIn(_state.value.workouts + workout, workout)
             saveWorkouts(_state.value.workouts + workout)
+            saveActive(null)
+            val summary = if (records.isEmpty()) "Workout saved." else
+                "Workout saved with ${records.size} new record${if (records.size == 1) "" else "s"}: " +
+                    records.take(6).joinToString("; ") { "${it.exercise} ${it.title}" }
+            _state.update { it.copy(plan = null, screen = if (records.isEmpty()) Screen.HISTORY else Screen.RECORDS, message = summary) }
+            return
         }
         saveActive(null)
-        _state.update { it.copy(plan = null, screen = Screen.HISTORY, message = if (exercises.isEmpty()) "Nothing was logged, so the workout wasn't saved." else "Workout saved.") }
+        _state.update { it.copy(plan = null, screen = Screen.HISTORY, message = "Nothing was logged, so the workout wasn't saved.") }
     }
 
     fun discardWorkout() {
