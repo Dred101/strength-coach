@@ -1,6 +1,7 @@
 package app.repcoach
 
 import android.app.Application
+import android.content.Intent
 import android.net.Uri
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
@@ -37,6 +38,7 @@ data class UiState(
     val plan: SessionPlan? = null,
     val active: ActiveWorkout? = null,
     val busy: String? = null,
+    val autoBackup: Boolean = false,
     val message: String? = null,
 )
 
@@ -53,6 +55,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                 it.copy(
                     workouts = workouts,
                     settings = store.loadSettings(),
+                    autoBackup = store.autoBackupUri != null,
                     active = active,
                     screen = if (active != null) Screen.WORKOUT else Screen.HOME,
                 )
@@ -258,10 +261,51 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         _state.update { it.copy(message = if (ok) "Backup saved." else "Couldn't save the backup.") }
     }
 
+    /** Turns on automatic backup to a document the user just created, and writes it straight away. */
+    fun enableAutoBackup(uri: Uri) {
+        val resolver = getApplication<Application>().contentResolver
+        val ok = runCatching {
+            resolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
+        }.isSuccess
+        if (!ok) {
+            _state.update { it.copy(message = "That location can't be used for automatic backups. Try a folder on the phone or in Google Drive.") }
+            return
+        }
+        store.autoBackupUri = uri.toString()
+        _state.update { it.copy(autoBackup = true) }
+        viewModelScope.launch(Dispatchers.IO) {
+            val written = writeAutoBackup(_state.value.workouts)
+            _state.update { it.copy(message = if (written) "Automatic backup is on. It updates after every change." else "Automatic backup is on, but the first save failed.") }
+        }
+    }
+
+    fun disableAutoBackup() {
+        store.autoBackupUri?.let { uri ->
+            runCatching {
+                getApplication<Application>().contentResolver.releasePersistableUriPermission(
+                    Uri.parse(uri), Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION,
+                )
+            }
+        }
+        store.autoBackupUri = null
+        _state.update { it.copy(autoBackup = false, message = "Automatic backup is off.") }
+    }
+
+    private fun writeAutoBackup(workouts: List<Workout>): Boolean {
+        val uri = store.autoBackupUri ?: return true
+        return runCatching {
+            getApplication<Application>().contentResolver.openOutputStream(Uri.parse(uri), "wt")!!
+                .bufferedWriter().use { it.write(store.exportJson(workouts)) }
+        }.isSuccess
+    }
+
     private fun saveWorkouts(workouts: List<Workout>) {
         val sorted = workouts.sortedBy { it.startMillis }
         _state.update { it.copy(workouts = sorted) }
-        viewModelScope.launch(Dispatchers.IO) { store.saveWorkouts(sorted) }
+        viewModelScope.launch(Dispatchers.IO) {
+            store.saveWorkouts(sorted)
+            if (!writeAutoBackup(sorted)) _state.update { it.copy(message = "Couldn't update your automatic backup. Check it in Settings.") }
+        }
     }
 
     private fun saveActive(active: ActiveWorkout?) {

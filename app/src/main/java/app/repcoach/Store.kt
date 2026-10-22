@@ -57,6 +57,11 @@ class Store(context: Context) {
         notes = prefs.getString("notes", "") ?: "",
     )
 
+    /** A document the user picked once; every change to workouts is copied there. */
+    var autoBackupUri: String?
+        get() = prefs.getString("autoBackupUri", null)
+        set(value) { prefs.edit().putString("autoBackupUri", value).apply() }
+
     fun saveSettings(s: Settings) {
         prefs.edit().putString("apiKey", s.apiKey.trim()).putString("model", s.model.trim()).putString("notes", s.notes).apply()
     }

@@ -91,6 +91,7 @@ fun SettingsScreen(state: UiState, vm: AppViewModel) {
     val importer = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? -> uri?.let(vm::importHevy) }
     val exporter = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri: Uri? -> uri?.let(vm::exportTo) }
     val restorer = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? -> uri?.let(vm::restoreBackup) }
+    val autoBackup = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri: Uri? -> uri?.let(vm::enableAutoBackup) }
     val healthPermissions = rememberLauncherForActivityResult(PermissionController.createRequestPermissionResultContract()) { vm.refreshHealth() }
 
     Column(
@@ -127,7 +128,15 @@ fun SettingsScreen(state: UiState, vm: AppViewModel) {
         Text("${state.workouts.size} workouts on this phone.")
         OutlinedButton(onClick = { importer.launch(arrayOf("text/*", "application/octet-stream", "*/*")) }) { Text("Import Hevy CSV") }
         Text("In Hevy: Profile, Settings, Export & Import Data, Export Workouts. Importing again replaces the earlier Hevy data.", style = MaterialTheme.typography.bodySmall)
-        OutlinedButton(onClick = { exporter.launch("repcoach-backup.json") }) { Text("Save a backup") }
+        Text("Automatic backup: " + if (state.autoBackup) "on" else "off", fontWeight = FontWeight.SemiBold)
+        Text(
+            "Pick a file once, ideally in Google Drive, and the app rewrites it after every workout. " +
+                "If the app is ever reinstalled, use Restore a backup and choose that file.",
+            style = MaterialTheme.typography.bodySmall,
+        )
+        if (state.autoBackup) OutlinedButton(onClick = { vm.disableAutoBackup() }) { Text("Turn off automatic backup") }
+        else Button(onClick = { autoBackup.launch("repcoach-autobackup.json") }) { Text("Turn on automatic backup") }
+        OutlinedButton(onClick = { exporter.launch("repcoach-backup.json") }) { Text("Save a one-off backup") }
         OutlinedButton(onClick = { restorer.launch(arrayOf("application/json", "application/octet-stream", "*/*")) }) { Text("Restore a backup") }
     }
 }
