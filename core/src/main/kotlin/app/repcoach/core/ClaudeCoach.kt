@@ -35,7 +35,8 @@ class ClaudeCoach(
         val context = CoachContext.build(progression, checkIn, recovery, draft, equipmentNotes)
 
         val reply = try {
-            client.messages().create(request(context, withFallbacks = true))
+            // Haiku has no server-side refusal fallback, so only ask for one on Sonnet and Opus.
+            client.messages().create(request(context, withFallbacks = !model.startsWith("claude-haiku")))
         } catch (e: BadRequestException) {
             // Fallbacks are a beta feature; if this account or model rejects them, ask again without.
             client.messages().create(request(context, withFallbacks = false))
@@ -95,7 +96,15 @@ class ClaudeCoach(
     private data class ClaudePlan(val title: String, val summary: String, val exercises: List<PlannedExercise>)
 
     companion object {
-        const val DEFAULT_MODEL = "claude-opus-5-5"
+        /** Cheapest current model; plenty for planning one session from a short briefing. */
+        const val DEFAULT_MODEL = "claude-haiku-5-5"
+
+        /** Models offered in Settings, cheapest first, with a rough cost per planned session. */
+        val MODELS = listOf(
+            "claude-haiku-5-5" to "Haiku: cheapest, under 1p a plan",
+            "claude-sonnet-5-5" to "Sonnet: middle, about 3p a plan",
+            "claude-opus-5-5" to "Opus: best, about 7p a plan",
+        )
 
         private val json = Json { ignoreUnknownKeys = true }
 

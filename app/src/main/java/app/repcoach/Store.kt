@@ -53,7 +53,10 @@ class Store(context: Context) {
 
     fun loadSettings() = Settings(
         apiKey = prefs.getString("apiKey", "") ?: "",
-        model = prefs.getString("model", ClaudeCoach.DEFAULT_MODEL) ?: ClaudeCoach.DEFAULT_MODEL,
+        // Before the model picker, saving settings stored the old Opus default; move that to the new default.
+        model = prefs.getString("model", null)
+            ?.takeUnless { it == "claude-opus-5-5" && !prefs.getBoolean("modelPicked", false) }
+            ?: ClaudeCoach.DEFAULT_MODEL,
         notes = prefs.getString("notes", "") ?: "",
     )
 
@@ -63,7 +66,7 @@ class Store(context: Context) {
         set(value) { prefs.edit().putString("autoBackupUri", value).apply() }
 
     fun saveSettings(s: Settings) {
-        prefs.edit().putString("apiKey", s.apiKey.trim()).putString("model", s.model.trim()).putString("notes", s.notes).apply()
+        prefs.edit().putString("apiKey", s.apiKey.trim()).putString("model", s.model.trim()).putBoolean("modelPicked", true).putString("notes", s.notes).apply()
     }
 
     private fun writeAtomically(file: File, text: String) {
