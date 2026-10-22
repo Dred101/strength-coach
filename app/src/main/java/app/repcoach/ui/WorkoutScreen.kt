@@ -48,6 +48,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import app.repcoach.ActiveWorkout
 import app.repcoach.AppViewModel
 import app.repcoach.UiState
 import app.repcoach.core.Exercises
@@ -83,10 +84,7 @@ fun WorkoutScreen(state: UiState, vm: AppViewModel) {
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             item {
-                Column(Modifier.padding(top = 8.dp)) {
-                    Text(active.plan.title, style = MaterialTheme.typography.headlineSmall)
-                    Text("Started ${formatDate(active.startMillis)}", style = MaterialTheme.typography.bodySmall)
-                }
+                SessionHeader(active)
             }
             items(active.plan.exercises, key = { it.name }) { e ->
                 val logged = active.logged[e.name].orEmpty()
@@ -126,7 +124,10 @@ fun WorkoutScreen(state: UiState, vm: AppViewModel) {
         AlertDialog(
             onDismissRequest = { confirmFinish = false },
             title = { Text("Finish this workout?") },
-            text = { Text("${active.logged.values.sumOf { it.size }} sets logged.") },
+            text = {
+                val minutes = (System.currentTimeMillis() - active.startMillis) / 60_000
+                Text("${active.logged.values.sumOf { it.size }} sets, ${Progression.fmt(sessionVolume(active).toDouble())} kg lifted in $minutes min.")
+            },
             confirmButton = { TextButton(onClick = { confirmFinish = false; vm.finishWorkout() }) { Text("Save") } },
             dismissButton = {
                 Row {
@@ -140,6 +141,28 @@ fun WorkoutScreen(state: UiState, vm: AppViewModel) {
     historyFor?.let { ExerciseHistoryDialog(it, state.workouts, onDismiss = { historyFor = null }) }
 
     if (adding) AddExerciseDialog(state, onPick = { adding = false; vm.addExercise(it) }, onDismiss = { adding = false })
+}
+
+private fun sessionVolume(active: ActiveWorkout): Long =
+    active.logged.values.flatten().filter { it.type != SetType.WARMUP }.sumOf { it.weightKg * it.reps }.toLong()
+
+/** Session title with a running clock and the total weight lifted so far. */
+@Composable
+private fun SessionHeader(active: ActiveWorkout) {
+    var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
+    LaunchedEffect(active.startMillis) {
+        while (true) { now = System.currentTimeMillis(); delay(1000) }
+    }
+    val elapsed = ((now - active.startMillis) / 1000).coerceAtLeast(0)
+    val clock = if (elapsed >= 3600) "%d:%02d:%02d".format(elapsed / 3600, elapsed / 60 % 60, elapsed % 60) else "%d:%02d".format(elapsed / 60, elapsed % 60)
+    Column(Modifier.padding(top = 8.dp)) {
+        Text(active.plan.title, style = MaterialTheme.typography.headlineSmall)
+        Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+            Text("⏱ $clock" + (active.plan.estimatedMinutes?.let { " of ~$it min" } ?: ""), fontWeight = FontWeight.SemiBold)
+            Text("${"%,d".format(sessionVolume(active))} kg lifted", fontWeight = FontWeight.SemiBold)
+        }
+        Text("Started ${formatDate(active.startMillis)}", style = MaterialTheme.typography.bodySmall)
+    }
 }
 
 @Composable

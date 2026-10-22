@@ -56,7 +56,8 @@ class ClaudeCoach(
                 restSeconds = ex.restSeconds.coerceIn(45, 300),
             )
         }
-        return SessionPlan(parsed.title, parsed.summary, exercises, source = "claude")
+        val minutes = Pace(progression.workouts).planMinutes(exercises)
+        return SessionPlan(parsed.title, "${parsed.summary} About $minutes minutes at your usual pace.", exercises, source = "claude", estimatedMinutes = minutes)
     }
 
     private fun request(context: String, withFallbacks: Boolean): MessageCreateParams {
@@ -146,7 +147,9 @@ class ClaudeCoach(
               times this week, today is a variety session: use different machines or variations from the last
               session and favour muscle groups with the lowest volume this week.
             - Fit the session to the minutes available. Budget about 40 seconds per working set plus its rest,
-              one minute per exercise for warm-up sets and setup, and five minutes overall to warm up.
+              one minute per exercise for warm-up sets and setup, and five minutes overall to warm up, then
+              multiply by the lifter's pace factor in the briefing, which is learned from how long their
+              past sessions really took. The draft already fits; keep its size unless you have a reason.
             - Lower energy or poor recovery means fewer sets and more reps in reserve, not a different programme.
             - Where a lift is flagged as plateaued, include one or two accessories that address the usual
               limiters for that lift (for bench: triceps lockout, upper-back stability, paused or close-grip work).
@@ -207,12 +210,15 @@ object CoachContext {
         }
         if (equipmentNotes.isNotBlank()) appendLine("Notes from the lifter: $equipmentNotes")
 
+        val pace = Pace(p.workouts)
+        appendLine("Pace factor: %.2f (actual session time ÷ standard estimate). ".format(Locale.UK, pace.factor) + pace.describe())
+
         appendLine()
         appendLine("## Last 14 days")
         val recent = p.recent(14)
         if (recent.isEmpty()) appendLine("No sessions.")
         for (w in recent) {
-            appendLine("${date(w.startMillis)}, ${w.title}:")
+            appendLine("${date(w.startMillis)}, ${w.title}, ${(w.endMillis - w.startMillis) / 60_000} min, ${w.volumeKg().toInt()} kg total:")
             for (ex in w.exercises) {
                 val sets = ex.sets.filter { it.isWorking }.joinToString(", ") { "${Progression.fmt(it.weightKg)}x${it.reps}" }
                 appendLine("  ${ex.name}: $sets")
