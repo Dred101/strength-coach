@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -37,6 +38,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -55,6 +57,7 @@ import app.repcoach.core.Progression
 import app.repcoach.core.SetPlan
 import app.repcoach.core.SetType
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 @Composable
 fun WorkoutScreen(state: UiState, vm: AppViewModel) {
@@ -62,6 +65,8 @@ fun WorkoutScreen(state: UiState, vm: AppViewModel) {
     var confirmFinish by remember { mutableStateOf(false) }
     var adding by remember { mutableStateOf(false) }
     var historyFor by remember { mutableStateOf<String?>(null) }
+    val listState = rememberLazyListState()
+    val scope = rememberCoroutineScope()
 
     // Keep the screen on while training so the rest timer stays visible.
     val view = LocalView.current
@@ -74,6 +79,7 @@ fun WorkoutScreen(state: UiState, vm: AppViewModel) {
         RestTimer(active.restEndsAt, onSkip = vm::skipRest, onAdd = { vm.addRest(30) })
         LazyColumn(
             Modifier.weight(1f).padding(horizontal = 12.dp),
+            state = listState,
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             item {
@@ -91,7 +97,17 @@ fun WorkoutScreen(state: UiState, vm: AppViewModel) {
                     e = e,
                     logged = logged,
                     badges = badges,
-                    onLog = { vm.logSet(e.name, it, e.restSeconds) },
+                    onLog = { set ->
+                        vm.logSet(e.name, set, e.restSeconds)
+                        // Once the last working set is in, scroll on to the next exercise still to do.
+                        val working = logged.count { it.type != SetType.WARMUP } + if (set.type != SetType.WARMUP) 1 else 0
+                        if (set.type != SetType.WARMUP && working == e.sets) {
+                            val after = active.logged + (e.name to logged + set)
+                            val next = SetPlan.nextUnfinished(active.plan.exercises, after, e.name)
+                            val target = next?.let { n -> active.plan.exercises.indexOf(n) + 1 } ?: (active.plan.exercises.size + 1)
+                            scope.launch { listState.animateScrollToItem(target) }
+                        }
+                    },
                     onUndo = { vm.removeLastSet(e.name) },
                     onSwap = { vm.swapExercise(e.name) },
                     onHistory = { historyFor = e.name },
@@ -212,9 +228,11 @@ private fun ExerciseCard(
                 fontWeight = FontWeight.SemiBold,
             )
             if (e.reason.isNotBlank()) Text(e.reason, style = MaterialTheme.typography.bodySmall)
+            Text("Rest: " + SetPlan.restReason(e), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
 
             if (warmups.isNotEmpty() && logged.isEmpty()) {
-                Text("Warm-up: " + warmups.joinToString(", ") { "${kg(it.weightKg)} × ${it.reps}" }, style = MaterialTheme.typography.bodySmall)
+                Text("Warm-up: " + warmups.joinToString(", ") { "${kg(it.weightKg)} × ${it.reps}" }, style = MaterialTheme.typography.bodyMedium)
+                Text(warmups.first().note, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             var workingNumber = 0
             logged.forEachIndexed { i, s ->
@@ -225,11 +243,14 @@ private fun ExerciseCard(
                 }
             }
             upcoming.forEachIndexed { i, s ->
-                Text(
-                    "Set ${workingNumber + i + 1}: ${kg(s.weightKg)} × ${s.reps}" + if (s.note.isNotBlank()) " · ${s.note}" else "",
-                    fontWeight = if (i == 0) FontWeight.Bold else FontWeight.Normal,
-                    color = if (i == 0) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+                Column {
+                    Text(
+                        "Set ${workingNumber + i + 1}: ${kg(s.weightKg)} × ${s.reps}",
+                        fontWeight = if (i == 0) FontWeight.Bold else FontWeight.Normal,
+                        color = if (i == 0) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
+                    )
+                    if (s.note.isNotBlank()) Text(s.note, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
             }
 
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {

@@ -16,6 +16,8 @@ import app.repcoach.core.Progression
 import app.repcoach.core.Recovery
 import app.repcoach.core.Records
 import app.repcoach.core.SessionPlan
+import app.repcoach.core.SetPlan
+import app.repcoach.core.SetType
 import app.repcoach.core.StrongCsv
 import app.repcoach.core.Workout
 import app.repcoach.core.toPlanned
@@ -124,8 +126,15 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         val a = _state.value.active ?: return
         val before = a.logged[exercise].orEmpty()
         val broken = brokenRecords(exercise, before, set)
-        saveActive(a.copy(logged = a.logged + (exercise to before + set), restEndsAt = System.currentTimeMillis() + restSeconds * 1000L))
-        if (broken.isNotEmpty()) _state.update { it.copy(message = "New record! $exercise: " + broken.joinToString(", ") { r -> r.title }) }
+        val logged = a.logged + (exercise to before + set)
+        saveActive(a.copy(logged = logged, restEndsAt = System.currentTimeMillis() + restSeconds * 1000L))
+        val planned = a.plan.exercises.firstOrNull { it.name == exercise }
+        val working = { sets: List<LoggedSet> -> sets.count { it.type != SetType.WARMUP } }
+        val justFinished = planned != null && set.type != SetType.WARMUP && working(before) < planned.sets && working(before + set) >= planned.sets
+        val moveOn = if (!justFinished) null else SetPlan.nextUnfinished(a.plan.exercises, logged, exercise)
+            ?.let { "$exercise done. Next: ${it.name}." } ?: "$exercise done. That's everything: finish when you're ready."
+        val record = broken.takeIf { it.isNotEmpty() }?.let { "New record! $exercise: " + it.joinToString(", ") { r -> r.title } }
+        listOfNotNull(record, moveOn).takeIf { it.isNotEmpty() }?.let { msgs -> _state.update { it.copy(message = msgs.joinToString(" ")) } }
     }
 
     /** Records this set breaks, measured against history plus the sets already logged today. */

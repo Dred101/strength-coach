@@ -9,7 +9,8 @@ class SetPlanTest {
 
     @Test fun laysOutEverySetUpFront() {
         val plan = SetPlan.remaining(bench, emptyList())
-        assertEquals(List(3) { SetSuggestion(80.0, 6) }, plan)
+        assertEquals(List(3) { 80.0 to 6 }, plan.map { it.weightKg to it.reps })
+        assertTrue(plan.all { it.note.isNotEmpty() })
         assertEquals(listOf(40.0, 60.0), SetPlan.warmups(bench).map { it.weightKg })
     }
 
@@ -23,13 +24,14 @@ class SetPlanTest {
         assertEquals(2, plan.size)
         assertEquals(82.5, plan[0].weightKg)
         assertEquals(6, plan[0].reps)
-        assertTrue(plan[0].note.isNotEmpty())
-        assertEquals("", plan[1].note)
+        assertTrue(plan[0].note.startsWith("Last set felt easy"))
+        assertTrue(plan[1].note.startsWith("Last set:"))
     }
 
     @Test fun onTargetHoldsWeightAndReps() {
         val plan = SetPlan.remaining(bench, listOf(LoggedSet(80.0, 6, SetType.NORMAL, rir = 2.0)))
-        assertEquals(SetSuggestion(80.0, 6), plan[0])
+        assertEquals(80.0 to 6, plan[0].weightKg to plan[0].reps)
+        assertEquals("On target: same again", plan[0].note)
     }
 
     @Test fun grindDropsLoad() {
@@ -41,6 +43,15 @@ class SetPlanTest {
     @Test fun nothingLeftOnceAllSetsLogged() {
         val sets = List(3) { LoggedSet(80.0, 6, SetType.NORMAL, rir = 2.0) }
         assertTrue(SetPlan.remaining(bench, sets).isEmpty())
+    }
+
+    @Test fun movesOnToTheNextUnfinishedExercise() {
+        val row = bench.copy(name = "Seated Cable Row")
+        val curl = bench.copy(name = "Hammer Curl (Dumbbell)")
+        val done = List(3) { LoggedSet(80.0, 6) }
+        assertEquals("Hammer Curl (Dumbbell)", SetPlan.nextUnfinished(listOf(bench, row, curl), mapOf("Bench Press (Barbell)" to done, "Seated Cable Row" to done), "Seated Cable Row")?.name)
+        assertEquals("Seated Cable Row", SetPlan.nextUnfinished(listOf(bench, row, curl), mapOf("Hammer Curl (Dumbbell)" to done, "Bench Press (Barbell)" to done), "Hammer Curl (Dumbbell)")?.name)
+        assertEquals(null, SetPlan.nextUnfinished(listOf(bench), mapOf("Bench Press (Barbell)" to done), "Bench Press (Barbell)"))
     }
 
     @Test fun isolationStopsOneRepShort() {

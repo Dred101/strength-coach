@@ -155,8 +155,9 @@ class ClaudeCoach(
             - Use the draft's weights, rep ranges and rest times for exercises that have them. For a new
               exercise, set weightKg to null and say in the reason how to choose a starting weight.
             - All weights are in kilograms and move in steps of 2.5 kg.
-            - Each reason is one short sentence the lifter reads in the gym. The summary is two sentences at
-              most, saying what today is and why.
+            - Each reason is one short sentence the lifter reads in the gym, saying why this exercise and this
+              load today: the muscle it tops up, what changed since last time, or the stalled lift it supports.
+              The summary is two sentences at most, saying what today is and why.
             - Order the session with the most demanding compound lifts first.
 
             Evidence to plan by (sources in the app's docs/RESEARCH.md; don't cite them to the lifter):
