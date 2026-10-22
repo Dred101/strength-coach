@@ -74,6 +74,7 @@ class Progression(workouts: List<Workout>, private val now: Long = System.curren
                 "New exercise: pick a weight you could lift for ${range.last + rir} reps.")
 
         val top = last.topWeight
+        val held = roundLoad(top)
         val atTop = last.workingSets.filter { it.weightKg >= top - 0.01 }
         val bestReps = atTop.maxOf { it.reps }
         val allHitTop = atTop.size >= 2 && atTop.all { it.reps >= range.last }
@@ -88,15 +89,15 @@ class Progression(workouts: List<Workout>, private val now: Long = System.curren
                     "Working in the ${range.first} to ${range.last} rep range at ${fmt(w)} kg.")
             }
             allHitTop && !low -> {
-                val w = roundLoad(top + info.incrementKg)
+                val w = roundLoad(held + info.incrementKg)
                 Target(exercise, sets, range.first, range.last, w, rir, info.restSeconds,
                     "Hit ${range.last} reps on every set last time: up to ${fmt(w)} kg.")
             }
             else -> {
                 val goal = min(bestReps + 1, range.last)
-                val note = if (low) "Low energy: hold ${fmt(top)} kg and leave ${rir} reps in reserve."
+                val note = if (low) "Low energy: hold ${fmt(held)} kg and leave ${rir} reps in reserve."
                 else "Same weight, aim for $goal reps on your first set" + (if (high) " and beat last time on the others." else ".")
-                Target(exercise, sets, range.first, range.last, top, rir, info.restSeconds, note)
+                Target(exercise, sets, range.first, range.last, held, rir, info.restSeconds, note)
             }
         }
     }
@@ -162,7 +163,10 @@ class Progression(workouts: List<Workout>, private val now: Long = System.curren
 
         fun weightFor(e1rm: Double, reps: Int, rir: Int): Double = e1rm / (1 + (reps + rir) / 30.0)
 
-        fun roundLoad(kg: Double): Double = (kg * 2).roundToInt() / 2.0
+        /** Every weight the app suggests or records moves in steps of this size. */
+        const val STEP_KG = 2.5
+
+        fun roundLoad(kg: Double): Double = (kg / STEP_KG).roundToInt() * STEP_KG
 
         fun daysBetween(from: Long, to: Long): Int = max(0, ((to - from) / ChronoUnit.DAYS.duration.toMillis()).toInt())
 

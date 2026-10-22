@@ -19,11 +19,7 @@ data class ExerciseInfo(
 
     /** Smallest sensible jump in load once the top of the rep range is reached. */
     val incrementKg: Double
-        get() = when {
-            kind == Kind.ISOLATION -> 1.0
-            primary in setOf(Muscle.QUADS, Muscle.HAMSTRINGS, Muscle.GLUTES) && kind == Kind.COMPOUND -> 5.0
-            else -> 2.5
-        }
+        get() = Progression.STEP_KG
 
     val restSeconds: Int
         get() = when (kind) {

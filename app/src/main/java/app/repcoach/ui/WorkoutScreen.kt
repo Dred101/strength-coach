@@ -203,12 +203,16 @@ private fun ExerciseCard(
                 }
             }
 
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                OutlinedButton(onClick = { weight = stepWeight(weight, -1) }) { Text("−2.5") }
                 OutlinedTextField(
                     value = weight, onValueChange = { weight = it.replace(',', '.') }, label = { Text("kg") },
                     singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                     modifier = Modifier.weight(1f),
                 )
+                OutlinedButton(onClick = { weight = stepWeight(weight, 1) }) { Text("+2.5") }
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 OutlinedTextField(
                     value = reps, onValueChange = { reps = it.filter(Char::isDigit) }, label = { Text("reps") },
                     singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
@@ -225,7 +229,9 @@ private fun ExerciseCard(
                 Button(
                     onClick = {
                         val r = reps.toIntOrNull() ?: return@Button
-                        onLog(LoggedSet(weightKg = weight.toDoubleOrNull() ?: 0.0, reps = r, type = SetType.NORMAL, rir = rir.toDouble()))
+                        val w = loggedWeight(weight)
+                        weight = Progression.fmt(w)
+                        onLog(LoggedSet(weightKg = w, reps = r, type = SetType.NORMAL, rir = rir.toDouble()))
                     },
                     enabled = reps.isNotBlank(),
                     modifier = Modifier.weight(1f),
@@ -233,7 +239,9 @@ private fun ExerciseCard(
                 OutlinedButton(
                     onClick = {
                         val r = reps.toIntOrNull() ?: return@OutlinedButton
-                        onLog(LoggedSet(weightKg = weight.toDoubleOrNull() ?: 0.0, reps = r, type = SetType.WARMUP))
+                        val w = loggedWeight(weight)
+                        weight = Progression.fmt(w)
+                        onLog(LoggedSet(weightKg = w, reps = r, type = SetType.WARMUP))
                     },
                     enabled = reps.isNotBlank(),
                 ) { Text("Warm-up") }
@@ -263,3 +271,12 @@ private fun AddExerciseDialog(state: UiState, onPick: (String) -> Unit, onDismis
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
     )
 }
+
+/** Moves the typed weight one 2.5 kg step up or down, snapping odd values onto the 2.5 kg grid first. */
+private fun stepWeight(text: String, direction: Int): String {
+    val current = Progression.roundLoad(text.toDoubleOrNull() ?: 0.0)
+    return Progression.fmt((current + direction * Progression.STEP_KG).coerceAtLeast(0.0))
+}
+
+/** The weight that gets saved: whatever was typed, rounded to the nearest 2.5 kg. */
+private fun loggedWeight(text: String): Double = Progression.roundLoad(text.toDoubleOrNull() ?: 0.0).coerceAtLeast(0.0)
