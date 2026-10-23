@@ -44,11 +44,16 @@ class ClaudeCoach(
         val text = textOf(reply)
         val parsed = json.decodeFromString(ClaudePlan.serializer(), text)
 
-        // The engine has the final say on load for anything with history.
+        // The engine has the final say on load for anything with history, and keeps muscles that
+        // are still recovering from hard sets in the last 48 hours on easy work.
+        val tired = MuscleRecovery(progression.workouts, progression.now).recovering()
         val exercises = parsed.exercises.map { ex ->
             val target = progression.target(ex.name, energy, ex.sets)
             val engineWeight = target.weightKg
+            val easy = Exercises.info(ex.name).primary in tired
             ex.copy(
+                sets = if (easy) ex.sets.coerceAtMost(2) else ex.sets,
+                targetRir = if (easy) maxOf(ex.targetRir, target.targetRir + 1) else ex.targetRir,
                 weightKg = engineWeight ?: ex.weightKg?.let(Progression::roundLoad),
                 repsMin = if (engineWeight != null) target.repsMin else ex.repsMin,
                 repsMax = if (engineWeight != null) target.repsMax else ex.repsMax,
@@ -58,6 +63,38 @@ class ClaudeCoach(
         }
         val minutes = Pace(progression.workouts).planMinutes(exercises)
         return SessionPlan(parsed.title, "${parsed.summary} About $minutes minutes at your usual pace.", exercises, source = "claude", estimatedMinutes = minutes)
+    }
+
+    /**
+     * Answers the lifter's questions about one suggestion, from [briefing] (the rules, facts and
+     * research behind it plus their training summary). [turns] alternate, starting with the lifter.
+     */
+    fun ask(briefing: String, turns: List<ChatTurn>): String {
+        require(turns.isNotEmpty() && turns.first().fromLifter)
+        fun build(withFallbacks: Boolean): MessageCreateParams {
+            val builder = MessageCreateParams.builder()
+                .model(model)
+                .maxTokens(4000L)
+                .systemOfTextBlockParams(listOf(
+                    TextBlockParam.builder().text(EXPLAIN_PROMPT).cacheControl(CacheControlEphemeral.builder().build()).build()
+                ))
+                .outputConfig(OutputConfig.builder().effort(OutputConfig.Effort.LOW).build())
+            turns.forEachIndexed { i, t ->
+                val text = if (i == 0) "$briefing\n\n## Question\n${t.text}" else t.text
+                if (t.fromLifter) builder.addUserMessage(text) else builder.addAssistantMessage(text)
+            }
+            if (withFallbacks) {
+                builder.putAdditionalHeader("anthropic-beta", "server-side-fallback-2026-07-01")
+                builder.putAdditionalBodyProperty("fallbacks", JsonValue.from("default"))
+            }
+            return builder.build()
+        }
+        val reply = try {
+            client.messages().create(build(withFallbacks = !model.startsWith("claude-haiku")))
+        } catch (e: BadRequestException) {
+            client.messages().create(build(withFallbacks = false))
+        }
+        return textOf(reply)
     }
 
     private fun request(context: String, withFallbacks: Boolean): MessageCreateParams {
@@ -87,10 +124,10 @@ class ClaudeCoach(
 
     private fun textOf(message: Message): String {
         if (message.stopReason().map { it.toString() }.orElse("") == "refusal") {
-            error("Claude declined to plan this session")
+            error("Claude declined to answer")
         }
         return message.content().mapNotNull { block -> block.text().map { it.text() }.orElse(null) }.joinToString("")
-            .ifBlank { error("Claude returned an empty plan") }
+            .ifBlank { error("Claude returned an empty reply") }
     }
 
     @Serializable
@@ -151,6 +188,10 @@ class ClaudeCoach(
               multiply by the lifter's pace factor in the briefing, which is learned from how long their
               past sessions really took. The draft already fits; keep its size unless you have a reason.
             - Lower energy or poor recovery means fewer sets and more reps in reserve, not a different programme.
+            - Check "Muscle recovery" in the briefing. A muscle marked recovering did hard sets in the last
+              48 hours: don't give it hard work today. Train the recovered muscles instead, and if most of
+              the body is recovering, say rest is the best choice and offer only an easy session. Never
+              repeat the previous session when it was less than 48 hours ago.
             - Where a lift is flagged as plateaued, include one or two accessories that address the usual
               limiters for that lift (for bench: triceps lockout, upper-back stability, paused or close-grip work).
             - Prefer exercises the lifter already uses, spelled exactly as in their history, so progress tracks.
@@ -177,6 +218,9 @@ class ClaudeCoach(
               heavier loads build more strength. So heavy compounds 5-8, machine and dumbbell compounds
               8-12, single-joint work 10-15, and small muscles (side and rear delts, calves, abs) 12-20.
               Keep the draft's rep ranges for exercises that have them (Schoenfeld 2017; Lopez 2021).
+            - Strength and power take 24 to 48 hours or more to recover after sets near failure, less when
+              sets stop short; training on consecutive days is fine when it hits different muscles or
+              weekly volume stays the same (Morán-Navarro 2017; Yang 2018).
             - Progress load once the lifter beats the top of the rep range, in the smallest step available
               (ACSM 2009).
             - When several lifts stall and recovery is poor, suggest a lighter week with roughly half the
@@ -185,8 +229,34 @@ class ClaudeCoach(
             - A short or late night measurably lowers performance, especially later in the day, so trim
               volume rather than load after poor sleep (Craven 2022).
         """.trimIndent()
+
+        val EXPLAIN_PROMPT = """
+            You are the lifter's strength coach, explaining a suggestion the coaching app made: a whole
+            session, one exercise, or one set. The briefing gives the rules that produced it, the facts
+            they used from the lifter's own history, the research behind each rule, and their recent
+            training. The app's rules engine sets weights, reps and rest; an AI model may have chosen the
+            exercises.
+
+            How to answer:
+            - Lead with the direct answer in plain words, then the reasons: their own numbers first
+              (dates, weights, reps, sets this week, hours since a muscle was trained), then the rule, then
+              the research by author and year from the briefing.
+            - Keep it short: a few sentences or a short list. The lifter reads this in the gym.
+            - Be honest about the strength of the evidence. Say when a rule is coaching practice or a
+              rule of thumb, and don't invent studies, numbers or history that aren't in the briefing.
+            - If the lifter challenges a suggestion, take it seriously. If they're right, or the rule
+              doesn't fit their situation, say so plainly and say what you'd do instead and how to change
+              it in the app (adjust the weight, swap the exercise, skip a set, add a note in Settings).
+              If the rule still holds, explain why without being defensive.
+            - Never give medical advice beyond suggesting they stop and see a professional if something hurts.
+            - Use kilograms. No headings, no tables.
+        """.trimIndent()
     }
 }
+
+/** One message in an "Ask why" conversation. */
+@Serializable
+data class ChatTurn(val fromLifter: Boolean, val text: String)
 
 /** Turns training history into the compact briefing Claude plans from. */
 object CoachContext {
@@ -231,9 +301,12 @@ object CoachContext {
         p.weeklyVolume().filterValues { it < Progression.WEEKLY_SET_TARGET }.keys.takeIf { it.isNotEmpty() }?.let { low ->
             appendLine("Below ${Progression.WEEKLY_SET_TARGET} sets so far: " + low.joinToString(", ") { it.name.lowercase() })
         }
-        appendLine("Days since trained: " + p.daysSinceMuscle().entries.joinToString(", ") {
-            "${it.key.name.lowercase()} ${it.value ?: "never"}"
-        })
+        val muscles = MuscleRecovery(p.workouts, p.now)
+        appendLine("Muscle recovery (hard sets in the last ${MuscleRecovery.READY_HOURS} h mean not ready for hard work): " +
+            Muscle.entries.joinToString("; ") { muscles.describe(it) })
+        muscles.recovering().takeIf { it.isNotEmpty() }?.let { r ->
+            appendLine("Recovering, so no hard sets today: " + r.joinToString(", ") { it.label() })
+        }
 
         appendLine()
         appendLine("## Lift trends (best estimated 1RM, last 8 weeks vs the 8 before)")

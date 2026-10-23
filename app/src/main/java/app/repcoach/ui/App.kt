@@ -73,6 +73,7 @@ fun App(vm: AppViewModel) {
                     }
                 }
                 state.busy?.let { Busy(it) }
+                state.why?.let { AskWhyDialog(it, hasKey = state.settings.apiKey.isNotBlank(), onAsk = vm::askWhy, onDismiss = vm::closeWhy) }
             }
         }
     }

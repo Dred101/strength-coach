@@ -56,7 +56,9 @@ import app.repcoach.core.LoggedSet
 import app.repcoach.core.PlannedExercise
 import app.repcoach.core.Progression
 import app.repcoach.core.SetPlan
+import app.repcoach.core.SetSuggestion
 import app.repcoach.core.SetType
+import app.repcoach.core.Why
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -109,6 +111,8 @@ fun WorkoutScreen(state: UiState, vm: AppViewModel) {
                     onUndo = { vm.removeLastSet(e.name) },
                     onSwap = { vm.swapExercise(e.name) },
                     onHistory = { historyFor = e.name },
+                    onWhy = { vm.openWhy(Why.forExercise(e, Progression(state.workouts))) },
+                    onWhySet = { number, suggestion -> vm.openWhy(Why.forSet(e, number, suggestion, logged, Progression(state.workouts))) },
                 )
             }
             item {
@@ -220,6 +224,8 @@ private fun ExerciseCard(
     onUndo: () -> Unit,
     onSwap: () -> Unit,
     onHistory: () -> Unit,
+    onWhy: () -> Unit,
+    onWhySet: (Int, SetSuggestion) -> Unit,
 ) {
     val lastSet = logged.lastOrNull()
     val upcoming = remember(e, logged) { SetPlan.remaining(e, logged) }
@@ -243,6 +249,7 @@ private fun ExerciseCard(
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(e.name, style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f).clickable(onClick = onHistory))
                 TextButton(onClick = onHistory) { Text("History") }
+                TextButton(onClick = onWhy) { Text("Why?") }
                 if (logged.isEmpty()) TextButton(onClick = onSwap) { Text("Swap") }
             }
             Text(
@@ -267,12 +274,18 @@ private fun ExerciseCard(
                 }
             }
             upcoming.forEachIndexed { i, s ->
-                Column {
-                    Text(
-                        "Set ${workingNumber + i + 1}: ${kg(s.weightKg)} × ${s.reps}",
-                        fontWeight = if (i == 0) FontWeight.Bold else FontWeight.Normal,
-                        color = if (i == 0) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
-                    )
+                val number = workingNumber + i + 1
+                // Tap a suggested set to ask why it's this weight and these reps.
+                Column(Modifier.fillMaxWidth().clickable { onWhySet(number, s) }) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            "Set $number: ${kg(s.weightKg)} × ${s.reps}",
+                            Modifier.weight(1f),
+                            fontWeight = if (i == 0) FontWeight.Bold else FontWeight.Normal,
+                            color = if (i == 0) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
+                        )
+                        Text("why? ›", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.secondary)
+                    }
                     if (s.note.isNotBlank()) Text(s.note, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }

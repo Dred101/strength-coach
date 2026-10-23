@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Android 12 and later: back up workouts to the phone's Google backup and copy them to a new phone.
+     Settings stay out: they hold the Claude API key, and a backup file location can't be reused after a reinstall. -->
+<data-extraction-rules>
+    <cloud-backup>
+        <include domain="file" path="workouts.json" />
+        <include domain="file" path="active.json" />
+    </cloud-backup>
+    <device-transfer>
+        <include domain="file" path="workouts.json" />
+        <include domain="file" path="active.json" />
+    </device-transfer>
+</data-extraction-rules>
