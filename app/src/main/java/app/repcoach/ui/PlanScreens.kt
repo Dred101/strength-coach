@@ -2,6 +2,9 @@
 
 package app.repcoach.ui
 
+import android.net.Uri
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
@@ -18,6 +21,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
@@ -35,6 +39,7 @@ import app.repcoach.UiState
 import app.repcoach.core.PlannedExercise
 import app.repcoach.core.Progression
 import app.repcoach.core.Recovery
+import app.repcoach.core.Why
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
@@ -55,6 +60,9 @@ internal fun prescription(e: PlannedExercise): String {
 fun HomeScreen(state: UiState, vm: AppViewModel) {
     val p = Progression(state.workouts)
     val last = state.workouts.lastOrNull()
+    val restorer = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? -> uri?.let(vm::restoreBackup) }
+    val hevy = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? -> uri?.let(vm::importHevy) }
+    val autoBackup = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri: Uri? -> uri?.let(vm::enableAutoBackup) }
     Column(
         Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp),
@@ -68,7 +76,25 @@ fun HomeScreen(state: UiState, vm: AppViewModel) {
                     val days = Progression.daysBetween(it.startMillis, System.currentTimeMillis())
                     Text("Last session: ${it.title}, " + when (days) { 0 -> "today"; 1 -> "yesterday"; else -> "$days days ago" })
                 }
-                if (state.workouts.isEmpty()) Text("No history yet. In Settings, import your Hevy export or restore a backup to give the coach something to work from.")
+            }
+        }
+        if (state.workouts.isEmpty()) {
+            // A fresh install, or one that replaced an older copy: get the history back in one tap.
+            Card(Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)) {
+                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("Bring your workouts back", style = MaterialTheme.typography.titleMedium)
+                    Text("If you had automatic backup on, choose the repcoach-autobackup file. Otherwise import your Hevy export.", style = MaterialTheme.typography.bodySmall)
+                    Button(onClick = { restorer.launch(arrayOf("application/json", "application/octet-stream", "*/*")) }, Modifier.fillMaxWidth()) { Text("Restore my backup") }
+                    OutlinedButton(onClick = { hevy.launch(arrayOf("text/*", "application/octet-stream", "*/*")) }, Modifier.fillMaxWidth()) { Text("Import from Hevy") }
+                }
+            }
+        } else if (!state.autoBackup) {
+            Card(Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.tertiaryContainer)) {
+                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("Protect your workouts", style = MaterialTheme.typography.titleMedium)
+                    Text("Turn on automatic backup so a reinstall never loses them. Save the file in Google Drive or Downloads.", style = MaterialTheme.typography.bodySmall)
+                    Button(onClick = { autoBackup.launch("repcoach-autobackup.json") }, Modifier.fillMaxWidth()) { Text("Turn on automatic backup") }
+                }
             }
         }
         RecoveryCard(state.recovery, state.healthStatus)
@@ -144,17 +170,24 @@ fun PlanScreen(state: UiState, vm: AppViewModel) {
             Column(Modifier.padding(top = 16.dp)) {
                 Text(plan.title, style = MaterialTheme.typography.headlineSmall)
                 Text(plan.summary, style = MaterialTheme.typography.bodyMedium)
-                Text(
-                    if (plan.source == "claude") "Planned by Claude" else "Planned by the built-in rules",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.secondary,
-                )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        if (plan.source == "claude") "Planned by Claude" else "Planned by the built-in rules",
+                        Modifier.weight(1f),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.secondary,
+                    )
+                    TextButton(onClick = { vm.openWhy(Why.forPlan(plan, Progression(state.workouts), state.recovery)) }) { Text("Ask why") }
+                }
             }
         }
         items(plan.exercises) { e ->
             Card(Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(16.dp)) {
-                    Text(e.name, style = MaterialTheme.typography.titleMedium)
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(e.name, Modifier.weight(1f), style = MaterialTheme.typography.titleMedium)
+                        TextButton(onClick = { vm.openWhy(Why.forExercise(e, Progression(state.workouts))) }) { Text("Why?") }
+                    }
                     Text(prescription(e), fontWeight = FontWeight.SemiBold)
                     if (e.reason.isNotBlank()) Text(e.reason, style = MaterialTheme.typography.bodySmall)
                 }

@@ -7,7 +7,11 @@ history, today's energy, the time you have and your recovery data, then logs eve
 
 1. On your phone, open <https://github.com/Dred101/strength-coach/releases/latest> (signed in to GitHub).
 2. Tap **RepCoach.apk** to download it, then open it and allow your browser to install apps when asked.
-3. New versions install over the old one; your data stays on the phone.
+3. New versions install over the old one; your data stays on the phone. Don't uninstall first, and always
+   update the same way you first installed (this file, or Play, not a mix): switching makes Android
+   remove the old copy and its data.
+4. Turn on **Settings, Automatic backup** and save the file in Google Drive. If the app ever starts empty,
+   the Today screen offers **Restore my backup**; pick that file.
 
 Phones with Android's Advanced Protection turned on only install apps from the Play Store. For those,
 upload `RepCoach.aab` from the same release to a Google Play internal test track and install from Play.
@@ -27,7 +31,11 @@ upload `RepCoach.aab` from the same release to a Google Play internal test track
   - `Progression` does the numbers: estimated 1RM (Epley, counting reps in reserve), double
     progression within each exercise's rep range, energy adjustments, plateau detection and weekly volume.
   - `Planner` builds a session without AI: three full-body templates a week, then variety sessions that
-    favour muscles with the least volume, sized to the minutes available.
+    favour muscles with the least volume, sized to the minutes available. `MuscleRecovery` keeps a muscle
+    that did hard sets in the last 48 hours off hard work, and turns the plan into a rest day when most
+    of the body is still recovering.
+  - `Why` gathers the facts, rules and research behind any plan, exercise or set for **Ask why**, where
+    `ClaudeCoach.ask` answers follow-up questions and challenges.
   - `ClaudeCoach` sends Claude a summary of all of that plus the rules engine's draft, and asks for the
     session as structured JSON. The engine's weights override Claude's for any exercise with history.
 - `app/` is the Jetpack Compose app: check-in, plan, workout logging with a rest timer, history,

@@ -5,7 +5,9 @@ import android.content.Intent
 import android.net.Uri
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import app.repcoach.core.ChatTurn
 import app.repcoach.core.CheckIn
+import app.repcoach.core.CoachContext
 import app.repcoach.core.ClaudeCoach
 import app.repcoach.core.ExerciseLog
 import app.repcoach.core.Exercises
@@ -19,6 +21,7 @@ import app.repcoach.core.SessionPlan
 import app.repcoach.core.SetPlan
 import app.repcoach.core.SetType
 import app.repcoach.core.StrongCsv
+import app.repcoach.core.WhyTopic
 import app.repcoach.core.Workout
 import app.repcoach.core.toPlanned
 import kotlinx.coroutines.Dispatchers
@@ -43,6 +46,15 @@ data class UiState(
     val busy: String? = null,
     val autoBackup: Boolean = false,
     val message: String? = null,
+    val why: WhyChat? = null,
+)
+
+/** An open "Ask why" conversation about one suggestion. */
+data class WhyChat(
+    val topic: WhyTopic,
+    val turns: List<ChatTurn> = emptyList(),
+    val thinking: Boolean = false,
+    val error: String? = null,
 )
 
 class AppViewModel(app: Application) : AndroidViewModel(app) {
@@ -107,6 +119,39 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         }
         val (plan, note) = result.getOrThrow()
         _state.update { it.copy(busy = null, plan = plan, recovery = recovery, message = note, screen = Screen.PLAN) }
+    }
+
+    // ---- Ask why ----
+
+    fun openWhy(topic: WhyTopic) = _state.update { it.copy(why = WhyChat(topic)) }
+
+    fun closeWhy() = _state.update { it.copy(why = null) }
+
+    /** Sends a question about the open topic to Claude, with the rules, research and training history behind it. */
+    fun askWhy(question: String) {
+        val s = _state.value
+        val chat = s.why ?: return
+        if (question.isBlank() || chat.thinking) return
+        val turns = chat.turns + ChatTurn(fromLifter = true, text = question.trim())
+        _state.update { it.copy(why = chat.copy(turns = turns, thinking = true, error = null)) }
+        viewModelScope.launch {
+            val plan = s.active?.plan ?: s.plan ?: SessionPlan("No plan yet", "", emptyList(), "none")
+            val answer = withContext(Dispatchers.IO) {
+                runCatching {
+                    val briefing = chat.topic.asText() + "\n" + CoachContext.build(Progression(s.workouts), s.checkIn, s.recovery, plan, s.settings.notes)
+                    ClaudeCoach(s.settings.apiKey, s.settings.model.ifBlank { ClaudeCoach.DEFAULT_MODEL }).ask(briefing, turns)
+                }
+            }
+            _state.update { st ->
+                val open = st.why?.takeIf { it.topic == chat.topic } ?: return@update st
+                answer.fold(
+                    onSuccess = { st.copy(why = open.copy(turns = turns + ChatTurn(fromLifter = false, text = it), thinking = false)) },
+                    // Drop the unanswered question so the conversation still alternates, and say what failed.
+                    onFailure = { e -> st.copy(why = open.copy(turns = chat.turns, thinking = false,
+                        error = "Couldn't reach Claude (${e.message ?: e.javaClass.simpleName}). Your question was: \"${question.trim()}\"")) },
+                )
+            }
+        }
     }
 
     // ---- Logging ----

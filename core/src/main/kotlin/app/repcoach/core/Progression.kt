@@ -41,7 +41,7 @@ data class Trend(
  * The deterministic half of the coach: estimated 1RM, double progression, plateau detection and
  * weekly volume. Claude chooses exercises; this decides the numbers.
  */
-class Progression(workouts: List<Workout>, private val now: Long = System.currentTimeMillis()) {
+class Progression(workouts: List<Workout>, val now: Long = System.currentTimeMillis()) {
     val workouts = workouts.sortedBy { it.startMillis }
 
     val exposures: Map<String, List<Exposure>> = buildMap<String, MutableList<Exposure>> {
