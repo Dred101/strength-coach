@@ -11,6 +11,7 @@ import app.repcoach.core.CoachContext
 import app.repcoach.core.ClaudeCoach
 import app.repcoach.core.ExerciseLog
 import app.repcoach.core.Exercises
+import app.repcoach.core.HevyApi
 import app.repcoach.core.HevyCsv
 import app.repcoach.core.LoggedSet
 import app.repcoach.core.Planner
@@ -31,6 +32,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.time.Instant
 
 enum class Screen { HOME, CHECK_IN, PLAN, WORKOUT, HISTORY, PROGRESS, RECORDS, SETTINGS }
 
@@ -47,6 +49,7 @@ data class UiState(
     val autoBackup: Boolean = false,
     val message: String? = null,
     val why: WhyChat? = null,
+    val hevyStatus: String? = null,
 )
 
 /** An open "Ask why" conversation about one suggestion. */
@@ -76,6 +79,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                 )
             }
             refreshHealth()
+            syncHevyNow(quiet = true)
         }
     }
 
@@ -102,8 +106,13 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     fun setCheckIn(checkIn: CheckIn) = _state.update { it.copy(checkIn = checkIn) }
 
     fun makePlan() = viewModelScope.launch {
+        // Plan from everything logged in Hevy up to now.
+        if (_state.value.settings.hevyKey.isNotBlank()) {
+            _state.update { it.copy(busy = "Getting your latest workouts from Hevy…", message = null) }
+            syncHevyNow(quiet = true)
+        }
         val s = _state.value
-        _state.update { it.copy(busy = "Planning your session…", message = null) }
+        _state.update { it.copy(busy = "Planning your session…") }
         val recovery = runCatching { if (health.available) health.recovery() else null }.getOrNull()
         val result = withContext(Dispatchers.IO) {
             if (s.settings.apiKey.isBlank()) {
@@ -120,6 +129,68 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         val (plan, note) = result.getOrThrow()
         _state.update { it.copy(busy = null, plan = plan, recovery = recovery, message = note, screen = Screen.PLAN) }
     }
+
+    // ---- Hevy ----
+
+    fun saveHevyKey(key: String) {
+        store.saveHevyKey(key)
+        _state.update { it.copy(settings = store.loadSettings()) }
+        if (key.isBlank()) _state.update { it.copy(message = "Hevy sync is off.") } else syncHevy()
+    }
+
+    fun syncHevy() = viewModelScope.launch {
+        _state.update { it.copy(busy = "Syncing from Hevy…") }
+        syncHevyNow(quiet = false)
+    }
+
+    /**
+     * Pulls workouts added, edited or deleted in Hevy since the last sync. The first sync takes the
+     * whole Hevy history in place of any CSV import. Quiet syncs only speak up when something changed.
+     */
+    private suspend fun syncHevyNow(quiet: Boolean) {
+        val key = _state.value.settings.hevyKey
+        if (key.isBlank()) return
+        val last = store.hevyLastSync
+        val started = Instant.now()
+        val result = withContext(Dispatchers.IO) {
+            runCatching { HevyApi(key).changesSince(last?.let(Instant::parse) ?: Instant.EPOCH) }
+        }
+        result.onSuccess { changes ->
+            val before = _state.value.workouts
+            val merged = HevyApi.merge(before, changes, firstSync = last == null)
+            if (merged != before) saveWorkouts(merged)
+            // Overlap the next window a little; repeats are matched by id.
+            store.hevyLastSync = started.minusSeconds(120).toString()
+            val newCount = merged.map { it.id }.toSet().minus(before.map { it.id }.toSet()).size
+            val note = when {
+                last == null -> "Connected to Hevy: ${merged.count { it.source == "hevy" }} workouts synced."
+                newCount > 0 -> "Synced $newCount new workout${if (newCount == 1) "" else "s"} from Hevy."
+                changes.updated.isNotEmpty() || changes.deletedIds.isNotEmpty() -> "Synced your Hevy changes."
+                else -> null
+            }
+            _state.update { it.copy(busy = null, hevyStatus = "Last synced ${formatTime(started)}", message = note ?: if (quiet) it.message else "Hevy is up to date.") }
+        }.onFailure { e ->
+            _state.update { it.copy(busy = null, hevyStatus = "Last sync failed: ${e.message}", message = if (quiet) it.message else e.message) }
+        }
+    }
+
+    /** Sends the current plan to Hevy as a routine, so it can be followed and logged there. */
+    fun sendPlanToHevy() = viewModelScope.launch {
+        val s = _state.value
+        val plan = s.plan ?: return@launch
+        _state.update { it.copy(busy = "Sending to Hevy…") }
+        val result = withContext(Dispatchers.IO) { runCatching { HevyApi(s.settings.hevyKey).sendRoutine(plan, store.hevyRoutineId) } }
+        result.onSuccess { sent ->
+            store.hevyRoutineId = sent.routineId
+            val missing = if (sent.skipped.isEmpty()) "" else " Hevy doesn't have ${sent.skipped.joinToString(", ")}, so add ${if (sent.skipped.size == 1) "it" else "them"} there by hand."
+            _state.update { it.copy(busy = null, message = "Sent to Hevy as the routine \"Rep Coach: ${plan.title}\". In Hevy, open Workout and start it.$missing") }
+        }.onFailure { e ->
+            _state.update { it.copy(busy = null, message = "Couldn't send to Hevy: ${e.message}") }
+        }
+    }
+
+    private fun formatTime(t: Instant): String =
+        java.time.format.DateTimeFormatter.ofPattern("EEE HH:mm", java.util.Locale.UK).format(t.atZone(java.time.ZoneId.systemDefault()))
 
     // ---- Ask why ----
 
@@ -283,6 +354,8 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             // Re-importing replaces earlier Hevy data and keeps everything logged in this app.
             val kept = _state.value.workouts.filter { it.source != "hevy" }
             saveWorkouts(kept + imported)
+            // With Hevy sync on, the next sync swaps this import for the API's copy so nothing doubles up.
+            if (_state.value.settings.hevyKey.isNotBlank()) store.hevyLastSync = null
             _state.update { it.copy(busy = null, message = "Imported ${imported.size} workouts from Hevy.") }
         }.onFailure { e ->
             _state.update { it.copy(busy = null, message = "Import failed: ${e.message}") }

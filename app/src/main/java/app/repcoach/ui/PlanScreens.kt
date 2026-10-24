@@ -194,6 +194,9 @@ fun PlanScreen(state: UiState, vm: AppViewModel) {
             }
         }
         item {
+            if (state.settings.hevyKey.isNotBlank()) {
+                OutlinedButton(onClick = { vm.sendPlanToHevy() }, Modifier.fillMaxWidth().padding(top = 8.dp)) { Text("Send to Hevy, to log it there") }
+            }
             Row(Modifier.fillMaxWidth().padding(vertical = 16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
                 OutlinedButton(onClick = { vm.makePlan() }, Modifier.weight(1f)) { Text("Re-plan") }
                 Button(onClick = { vm.startWorkout() }, Modifier.weight(1f).height(56.dp)) { Text("Start") }
