@@ -24,6 +24,8 @@ data class Settings(
     val apiKey: String,
     val model: String,
     val notes: String,
+    /** Hevy API key (Hevy Pro), for pulling workouts logged in Hevy and sending plans there. */
+    val hevyKey: String = "",
 )
 
 /** Everything lives on the phone: workouts in a JSON file, settings in private preferences. */
@@ -58,7 +60,24 @@ class Store(context: Context) {
             ?.takeUnless { it == "claude-opus-5-5" && !prefs.getBoolean("modelPicked", false) }
             ?: ClaudeCoach.DEFAULT_MODEL,
         notes = prefs.getString("notes", "") ?: "",
+        hevyKey = prefs.getString("hevyKey", "") ?: "",
     )
+
+    /** When the last Hevy sync started, as an ISO instant; null means never, so the next sync is a full one. */
+    var hevyLastSync: String?
+        get() = prefs.getString("hevyLastSync", null)
+        set(value) { prefs.edit().putString("hevyLastSync", value).apply() }
+
+    /** The Hevy routine the last plan was sent to, reused so Hevy's routine list doesn't fill up. */
+    var hevyRoutineId: String?
+        get() = prefs.getString("hevyRoutineId", null)
+        set(value) { prefs.edit().putString("hevyRoutineId", value).apply() }
+
+    fun saveHevyKey(key: String) {
+        val k = key.trim()
+        // A different key may be a different Hevy account: start again with a full sync.
+        if (k != prefs.getString("hevyKey", "")) prefs.edit().putString("hevyKey", k).remove("hevyLastSync").remove("hevyRoutineId").apply()
+    }
 
     /** A document the user picked once; every change to workouts is copied there. */
     var autoBackupUri: String?

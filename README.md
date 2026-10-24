@@ -21,13 +21,17 @@ upload `RepCoach.aab` from the same release to a Google Play internal test track
 1. **Settings, Import Hevy CSV.** In Hevy: Profile, Settings, Export & Import Data, Export Workouts.
 2. **Settings, Claude API key.** Create one at console.anthropic.com. Without a key the app still plans
    sessions with its built-in rules.
-3. **Settings, Connect Health Connect.** Your band's app (Fitbit or Google Health) must be syncing into
+3. **Optional: Settings, Hevy sync.** To keep logging in Hevy, paste your Hevy API key (needs Hevy Pro;
+   hevy.com, Settings, Developer). Rep Coach pulls new Hevy workouts when it opens and before each plan,
+   and **Send to Hevy** on a plan creates a "Rep Coach" routine in Hevy to follow and log.
+4. **Settings, Connect Health Connect.** Your band's app (Fitbit or Google Health) must be syncing into
    Health Connect for sleep, resting heart rate and HRV to show up.
 
 ## How the coach works
 
 - `core/` is plain Kotlin with no Android code, so it can be tested on any machine (`cd core && ../gradlew test`).
-  - `HevyCsv` reads Hevy's export.
+  - `HevyCsv` reads Hevy's export; `HevyApi` syncs with Hevy's public API (workout events in,
+    plans out as a routine that is replaced each time).
   - `Progression` does the numbers: estimated 1RM (Epley, counting reps in reserve), double
     progression within each exercise's rep range, energy adjustments, plateau detection and weekly volume.
   - `Planner` builds a session without AI: three full-body templates a week, then variety sessions that

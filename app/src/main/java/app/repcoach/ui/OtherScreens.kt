@@ -90,6 +90,7 @@ fun SettingsScreen(state: UiState, vm: AppViewModel) {
     var apiKey by remember(state.settings) { mutableStateOf(state.settings.apiKey) }
     var model by remember(state.settings) { mutableStateOf(state.settings.model) }
     var notes by remember(state.settings) { mutableStateOf(state.settings.notes) }
+    var hevyKey by remember(state.settings) { mutableStateOf(state.settings.hevyKey) }
 
     val importer = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? -> uri?.let(vm::importHevy) }
     val exporter = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri: Uri? -> uri?.let(vm::exportTo) }
@@ -127,7 +128,24 @@ fun SettingsScreen(state: UiState, vm: AppViewModel) {
             label = { Text("Notes for the coach") },
             placeholder = { Text("Equipment at your gym, injuries, exercises you dislike") },
         )
-        Button(onClick = { vm.saveSettings(Settings(apiKey, model, notes)) }) { Text("Save") }
+        Button(onClick = { vm.saveSettings(Settings(apiKey, model, notes, state.settings.hevyKey)) }) { Text("Save") }
+
+        HorizontalDivider()
+        Text("Hevy sync", style = MaterialTheme.typography.titleMedium)
+        Text(
+            "Log in Hevy and let Rep Coach plan. Rep Coach pulls your Hevy workouts when it opens and before every plan, " +
+                "and Send to Hevy on a plan puts it in Hevy as a routine. Needs Hevy Pro: on hevy.com, Settings, Developer, copy the API key.",
+            style = MaterialTheme.typography.bodySmall,
+        )
+        OutlinedTextField(
+            value = hevyKey, onValueChange = { hevyKey = it }, label = { Text("Hevy API key") }, singleLine = true,
+            visualTransformation = PasswordVisualTransformation(), modifier = Modifier.fillMaxWidth(),
+        )
+        state.hevyStatus?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Button(onClick = { vm.saveHevyKey(hevyKey) }) { Text(if (state.settings.hevyKey.isBlank()) "Connect Hevy" else "Save key") }
+            if (state.settings.hevyKey.isNotBlank()) OutlinedButton(onClick = { vm.syncHevy() }) { Text("Sync now") }
+        }
 
         HorizontalDivider()
         Text("Health Connect", style = MaterialTheme.typography.titleMedium)
