@@ -14,6 +14,16 @@ class SetPlanTest {
         assertEquals(listOf(40.0, 60.0), SetPlan.warmups(bench).map { it.weightKg })
     }
 
+    @Test fun oddLoggedWeightsStillGetSuggestionsInTwoAndAHalfKgSteps() {
+        // Logged weights are kept as typed (81 kg); the suggestions that follow snap to the grid.
+        val easy = SetPlan.remaining(bench, listOf(LoggedSet(81.0, 7, SetType.NORMAL, rir = 4.0)))
+        assertEquals(82.5, easy[0].weightKg)
+        val same = SetPlan.remaining(bench, listOf(LoggedSet(81.0, 6, SetType.NORMAL, rir = 2.0)))
+        assertEquals(80.0, same[0].weightKg)
+        assertEquals("61.25", Progression.fmt(61.25))
+        assertEquals("62.5", Progression.fmt(62.5))
+    }
+
     @Test fun warmupsDontCountAsWorkingSets() {
         val plan = SetPlan.remaining(bench, listOf(LoggedSet(40.0, 8, SetType.WARMUP)))
         assertEquals(3, plan.size)

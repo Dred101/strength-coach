@@ -23,6 +23,7 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
@@ -70,6 +71,13 @@ fun WorkoutScreen(state: UiState, vm: AppViewModel) {
     var historyFor by remember { mutableStateOf<String?>(null) }
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
+    // Scrolls to the next exercise still to do once [done] is finished.
+    fun scrollPast(done: PlannedExercise) {
+        val after = active.logged + (done.name to List(done.sets) { LoggedSet(0.0, 0) })
+        val next = SetPlan.nextUnfinished(active.plan.exercises, after, done.name)
+        val target = next?.let { n -> active.plan.exercises.indexOf(n) + 1 } ?: (active.plan.exercises.size + 1)
+        scope.launch { listState.animateScrollToItem(target) }
+    }
 
     // Keep the screen on while training so the rest timer stays visible.
     val view = LocalView.current
@@ -101,13 +109,12 @@ fun WorkoutScreen(state: UiState, vm: AppViewModel) {
                         vm.logSet(e.name, set, e.restSeconds)
                         // Once the last working set is in, scroll on to the next exercise still to do.
                         val working = logged.count { it.type != SetType.WARMUP } + if (set.type != SetType.WARMUP) 1 else 0
-                        if (set.type != SetType.WARMUP && working == e.sets) {
-                            val after = active.logged + (e.name to logged + set)
-                            val next = SetPlan.nextUnfinished(active.plan.exercises, after, e.name)
-                            val target = next?.let { n -> active.plan.exercises.indexOf(n) + 1 } ?: (active.plan.exercises.size + 1)
-                            scope.launch { listState.animateScrollToItem(target) }
-                        }
+                        if (set.type != SetType.WARMUP && working == e.sets) scrollPast(e)
                     },
+                    onComplete = { vm.completeExercise(e.name); scrollPast(e) },
+                    onClear = { vm.clearExercise(e.name) },
+                    onEdit = { i, set -> vm.editSet(e.name, i, set) },
+                    onDelete = { i -> vm.deleteSet(e.name, i) },
                     onUndo = { vm.removeLastSet(e.name) },
                     onSwap = { vm.swapExercise(e.name) },
                     onHistory = { historyFor = e.name },
@@ -226,7 +233,13 @@ private fun ExerciseCard(
     onHistory: () -> Unit,
     onWhy: () -> Unit,
     onWhySet: (Int, SetSuggestion) -> Unit,
+    onComplete: () -> Unit,
+    onClear: () -> Unit,
+    onEdit: (Int, LoggedSet) -> Unit,
+    onDelete: (Int) -> Unit,
 ) {
+    var editing by remember { mutableStateOf<Int?>(null) }
+    var confirmClear by remember { mutableStateOf(false) }
     val lastSet = logged.lastOrNull()
     val upcoming = remember(e, logged) { SetPlan.remaining(e, logged) }
     val warmups = remember(e) { SetPlan.warmups(e) }
@@ -247,6 +260,8 @@ private fun ExerciseCard(
     ) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
+                // One tick logs every remaining set as suggested; unticking clears the exercise.
+                Checkbox(checked = done, onCheckedChange = { if (it) onComplete() else confirmClear = true })
                 Text(e.name, style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f).clickable(onClick = onHistory))
                 TextButton(onClick = onHistory) { Text("History") }
                 TextButton(onClick = onWhy) { Text("Why?") }
@@ -268,7 +283,10 @@ private fun ExerciseCard(
             var workingNumber = 0
             logged.forEachIndexed { i, s ->
                 val label = if (s.type == SetType.WARMUP) "Warm-up" else "Set ${++workingNumber}"
-                Text("✓ $label: ${Progression.fmt(s.weightKg)} kg × ${s.reps}" + (s.rir?.let { ", ${it.toInt()} in reserve" } ?: ""))
+                Row(Modifier.fillMaxWidth().clickable { editing = i }, verticalAlignment = Alignment.CenterVertically) {
+                    Text("✓ $label: ${Progression.fmt(s.weightKg)} kg × ${s.reps}" + (s.rir?.let { ", ${it.toInt()} in reserve" } ?: ""), Modifier.weight(1f))
+                    Text("edit", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.secondary)
+                }
                 badges.getOrNull(i)?.takeIf { it.isNotEmpty() }?.let {
                     Text("🏆 New record: $it", color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodySmall)
                 }
@@ -336,6 +354,68 @@ private fun ExerciseCard(
             }
         }
     }
+
+    editing?.let { i ->
+        logged.getOrNull(i)?.let { set ->
+            EditSetDialog(set, onSave = { onEdit(i, it); editing = null }, onDelete = { onDelete(i); editing = null }, onDismiss = { editing = null })
+        }
+    }
+    if (confirmClear) AlertDialog(
+        onDismissRequest = { confirmClear = false },
+        title = { Text("Clear ${e.name}?") },
+        text = { Text("This removes the ${logged.size} set${if (logged.size == 1) "" else "s"} logged for it today.") },
+        confirmButton = { TextButton(onClick = { confirmClear = false; onClear() }) { Text("Clear") } },
+        dismissButton = { TextButton(onClick = { confirmClear = false }) { Text("Keep") } },
+    )
+}
+
+/** Fixes a logged set: the weight is saved exactly as typed. */
+@Composable
+private fun EditSetDialog(set: LoggedSet, onSave: (LoggedSet) -> Unit, onDelete: () -> Unit, onDismiss: () -> Unit) {
+    var weight by remember { mutableStateOf(Progression.fmt(set.weightKg)) }
+    var reps by remember { mutableStateOf(set.reps.toString()) }
+    var rir by remember { mutableStateOf(set.rir?.toInt()) }
+    var warmup by remember { mutableStateOf(set.type == SetType.WARMUP) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Edit set") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedTextField(
+                    value = weight, onValueChange = { weight = it.replace(',', '.') }, label = { Text("kg") }, singleLine = true,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                )
+                OutlinedTextField(
+                    value = reps, onValueChange = { reps = it.filter(Char::isDigit) }, label = { Text("reps") }, singleLine = true,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                )
+                Text("Reps left in the tank", style = MaterialTheme.typography.labelMedium)
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    (0..4).forEach { n -> FilterChip(selected = rir == n, onClick = { rir = if (rir == n) null else n }, label = { Text(if (n == 4) "4+" else "$n") }) }
+                }
+                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.clickable { warmup = !warmup }) {
+                    Checkbox(checked = warmup, onCheckedChange = { warmup = it })
+                    Text("Warm-up set")
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(
+                onClick = {
+                    val r = reps.toIntOrNull() ?: return@TextButton
+                    val type = if (warmup) SetType.WARMUP else if (set.type == SetType.WARMUP) SetType.NORMAL else set.type
+                    onSave(set.copy(weightKg = loggedWeight(weight), reps = r, rir = if (warmup) null else rir?.toDouble(), type = type))
+                },
+                enabled = reps.isNotBlank(),
+            ) { Text("Save") }
+        },
+        dismissButton = {
+            Row {
+                TextButton(onClick = onDelete) { Text("Delete") }
+                TextButton(onClick = onDismiss) { Text("Cancel") }
+            }
+        },
+    )
 }
 
 @Composable
@@ -359,11 +439,11 @@ private fun AddExerciseDialog(state: UiState, onPick: (String) -> Unit, onDismis
     )
 }
 
-/** Moves the typed weight one 2.5 kg step up or down, snapping odd values onto the 2.5 kg grid first. */
+/** Moves the typed weight one 2.5 kg step up or down from exactly what's there. */
 private fun stepWeight(text: String, direction: Int): String {
-    val current = Progression.roundLoad(text.toDoubleOrNull() ?: 0.0)
+    val current = text.toDoubleOrNull() ?: 0.0
     return Progression.fmt((current + direction * Progression.STEP_KG).coerceAtLeast(0.0))
 }
 
-/** The weight that gets saved: whatever was typed, rounded to the nearest 2.5 kg. */
-private fun loggedWeight(text: String): Double = Progression.roundLoad(text.toDoubleOrNull() ?: 0.0).coerceAtLeast(0.0)
+/** The weight that gets saved: exactly what was typed. Only the coach's suggestions keep to 2.5 kg steps. */
+private fun loggedWeight(text: String): Double = (text.toDoubleOrNull() ?: 0.0).coerceAtLeast(0.0)

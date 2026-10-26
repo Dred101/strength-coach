@@ -38,7 +38,6 @@ import app.repcoach.Screen
 import app.repcoach.UiState
 import app.repcoach.core.PlannedExercise
 import app.repcoach.core.Progression
-import app.repcoach.core.Recovery
 import app.repcoach.core.Why
 import java.time.Instant
 import java.time.ZoneId
@@ -97,7 +96,6 @@ fun HomeScreen(state: UiState, vm: AppViewModel) {
                 }
             }
         }
-        RecoveryCard(state.recovery, state.healthStatus)
         if (state.active != null) {
             Button(onClick = { vm.go(Screen.WORKOUT) }, Modifier.fillMaxWidth().height(56.dp)) { Text("Back to your workout") }
         } else {
@@ -113,22 +111,6 @@ fun HomeScreen(state: UiState, vm: AppViewModel) {
                     Text("The coach adds support work for these.", style = MaterialTheme.typography.bodySmall)
                 }
             }
-        }
-    }
-}
-
-@Composable
-fun RecoveryCard(r: Recovery?, status: String) {
-    Card(Modifier.fillMaxWidth()) {
-        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            Text("Recovery", style = MaterialTheme.typography.titleMedium)
-            val lines = listOfNotNull(
-                r?.sleepHours?.let { "Sleep: %.1f h".format(Locale.UK, it) },
-                r?.restingHr?.let { "Resting heart rate: ${it.toInt()} bpm" + (r.restingHrBaseline?.let { b -> " (usually ${b.toInt()})" } ?: "") },
-                r?.hrvMs?.let { "HRV: ${it.toInt()} ms" + (r.hrvBaseline?.let { b -> " (usually ${b.toInt()})" } ?: "") },
-                r?.stepsYesterday?.let { "Steps yesterday: $it" },
-            )
-            if (lines.isEmpty()) Text("Health Connect: $status") else lines.forEach { Text(it) }
         }
     }
 }

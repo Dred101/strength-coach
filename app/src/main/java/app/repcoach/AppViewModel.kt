@@ -41,7 +41,6 @@ data class UiState(
     val workouts: List<Workout> = emptyList(),
     val settings: Settings = Settings("", ClaudeCoach.DEFAULT_MODEL, ""),
     val recovery: Recovery? = null,
-    val healthStatus: String = "Not connected",
     val checkIn: CheckIn = CheckIn(energy = 7, minutes = 60),
     val plan: SessionPlan? = null,
     val active: ActiveWorkout? = null,
@@ -62,7 +61,6 @@ data class WhyChat(
 
 class AppViewModel(app: Application) : AndroidViewModel(app) {
     private val store = Store(app)
-    val health = Health(app)
     private val _state = MutableStateFlow(UiState())
     val state: StateFlow<UiState> = _state.asStateFlow()
 
@@ -78,7 +76,6 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                     screen = if (active != null) Screen.WORKOUT else Screen.HOME,
                 )
             }
-            refreshHealth()
             syncHevyNow(quiet = true)
         }
     }
@@ -86,20 +83,6 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     fun go(screen: Screen) = _state.update { it.copy(screen = screen, message = null) }
 
     fun dismissMessage() = _state.update { it.copy(message = null) }
-
-    // ---- Health Connect ----
-
-    fun refreshHealth() = viewModelScope.launch {
-        val status = when {
-            !health.available -> "Health Connect isn't available on this phone"
-            else -> {
-                val granted = runCatching { health.grantedCount() }.getOrDefault(0)
-                if (granted == 0) "Not connected" else "Connected ($granted of ${health.permissions.size} data types)"
-            }
-        }
-        val recovery = if (health.available) runCatching { health.recovery() }.getOrNull() else null
-        _state.update { it.copy(healthStatus = status, recovery = recovery) }
-    }
 
     // ---- Planning ----
 
@@ -113,7 +96,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         }
         val s = _state.value
         _state.update { it.copy(busy = "Planning your session…") }
-        val recovery = runCatching { if (health.available) health.recovery() else null }.getOrNull()
+        val recovery: Recovery? = null
         val result = withContext(Dispatchers.IO) {
             if (s.settings.apiKey.isBlank()) {
                 Result.success(Planner(Progression(s.workouts)).plan(s.checkIn, recovery) to
@@ -244,13 +227,54 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         val broken = brokenRecords(exercise, before, set)
         val logged = a.logged + (exercise to before + set)
         saveActive(a.copy(logged = logged, restEndsAt = System.currentTimeMillis() + restSeconds * 1000L))
-        val planned = a.plan.exercises.firstOrNull { it.name == exercise }
-        val working = { sets: List<LoggedSet> -> sets.count { it.type != SetType.WARMUP } }
-        val justFinished = planned != null && set.type != SetType.WARMUP && working(before) < planned.sets && working(before + set) >= planned.sets
-        val moveOn = if (!justFinished) null else SetPlan.nextUnfinished(a.plan.exercises, logged, exercise)
-            ?.let { "$exercise done. Next: ${it.name}." } ?: "$exercise done. That's everything: finish when you're ready."
+        val moveOn = moveOnMessage(a, exercise, before, before + set)
         val record = broken.takeIf { it.isNotEmpty() }?.let { "New record! $exercise: " + it.joinToString(", ") { r -> r.title } }
         listOfNotNull(record, moveOn).takeIf { it.isNotEmpty() }?.let { msgs -> _state.update { it.copy(message = msgs.joinToString(" ")) } }
+    }
+
+    /** "Squat done. Next: Bench." when [after] completes the exercise's working sets and [before] didn't. */
+    private fun moveOnMessage(a: ActiveWorkout, exercise: String, before: List<LoggedSet>, after: List<LoggedSet>): String? {
+        val planned = a.plan.exercises.firstOrNull { it.name == exercise } ?: return null
+        val working = { sets: List<LoggedSet> -> sets.count { it.type != SetType.WARMUP } }
+        if (working(before) >= planned.sets || working(after) < planned.sets) return null
+        return SetPlan.nextUnfinished(a.plan.exercises, a.logged + (exercise to after), exercise)
+            ?.let { "$exercise done. Next: ${it.name}." } ?: "$exercise done. That's everything: finish when you're ready."
+    }
+
+    /** Ticks off an exercise: logs every set still to do as suggested, at the planned reps in reserve. */
+    fun completeExercise(exercise: String) {
+        val a = _state.value.active ?: return
+        val planned = a.plan.exercises.firstOrNull { it.name == exercise } ?: return
+        val before = a.logged[exercise].orEmpty()
+        val lastWeight = before.lastOrNull { it.type != SetType.WARMUP }?.weightKg
+        val sets = SetPlan.remaining(planned, before).map { s ->
+            LoggedSet(weightKg = s.weightKg ?: lastWeight ?: 0.0, reps = s.reps, type = SetType.NORMAL, rir = planned.targetRir.toDouble())
+        }
+        if (sets.isEmpty()) return
+        saveActive(a.copy(logged = a.logged + (exercise to before + sets), restEndsAt = null))
+        moveOnMessage(a, exercise, before, before + sets)?.let { msg -> _state.update { it.copy(message = msg) } }
+    }
+
+    /** Unticks an exercise: clears its logged sets so it can be done again. */
+    fun clearExercise(exercise: String) {
+        val a = _state.value.active ?: return
+        saveActive(a.copy(logged = a.logged - exercise))
+    }
+
+    /** Changes a set already logged, for when the numbers went in wrong. */
+    fun editSet(exercise: String, index: Int, set: LoggedSet) {
+        val a = _state.value.active ?: return
+        val sets = a.logged[exercise].orEmpty().toMutableList()
+        if (index !in sets.indices) return
+        sets[index] = set
+        saveActive(a.copy(logged = a.logged + (exercise to sets)))
+    }
+
+    fun deleteSet(exercise: String, index: Int) {
+        val a = _state.value.active ?: return
+        val sets = a.logged[exercise].orEmpty()
+        if (index !in sets.indices) return
+        saveActive(a.copy(logged = a.logged + (exercise to sets.filterIndexed { i, _ -> i != index })))
     }
 
     /** Records this set breaks, measured against history plus the sets already logged today. */
