@@ -178,7 +178,9 @@ class Progression(workouts: List<Workout>, val now: Long = System.currentTimeMil
 
         fun daysBetween(from: Long, to: Long): Int = max(0, ((to - from) / ChronoUnit.DAYS.duration.toMillis()).toInt())
 
-        fun fmt(kg: Double): String = if (kg % 1.0 == 0.0) kg.toInt().toString() else "%.1f".format(java.util.Locale.UK, kg)
+        /** 60, 62.5 or 61.25: whole numbers without decimals, others to at most two places. */
+        fun fmt(kg: Double): String = if (kg % 1.0 == 0.0) kg.toInt().toString()
+            else java.math.BigDecimal.valueOf(kg).setScale(2, java.math.RoundingMode.HALF_UP).stripTrailingZeros().toPlainString()
 
         private fun min(a: Int, b: Int) = if (a < b) a else b
     }

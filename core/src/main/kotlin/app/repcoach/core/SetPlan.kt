@@ -38,7 +38,8 @@ object SetPlan {
         val next = if (last == null) {
             SetSuggestion(e.weightKg, e.targetReps ?: e.repsMax, "Opening set: stop with ${e.targetRir} in reserve")
         } else {
-            replan(e, last)
+            // The lifter may log any weight; suggestions always land on the 2.5 kg grid.
+            replan(e, last).let { it.copy(weightKg = it.weightKg?.let(Progression::roundLoad)) }
         }
         return List(left) { i ->
             val setNumber = working.size + i + 1

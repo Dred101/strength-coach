@@ -35,7 +35,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
-import androidx.health.connect.client.PermissionController
 import app.repcoach.AppViewModel
 import app.repcoach.Settings
 import app.repcoach.UiState
@@ -97,7 +96,6 @@ fun SettingsScreen(state: UiState, vm: AppViewModel) {
     val restorer = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? -> uri?.let(vm::restoreBackup) }
     val hevyExporter = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("text/csv")) { uri: Uri? -> uri?.let(vm::exportForHevy) }
     val autoBackup = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri: Uri? -> uri?.let(vm::enableAutoBackup) }
-    val healthPermissions = rememberLauncherForActivityResult(PermissionController.createRequestPermissionResultContract()) { vm.refreshHealth() }
 
     Column(
         Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp),
@@ -146,15 +144,6 @@ fun SettingsScreen(state: UiState, vm: AppViewModel) {
             Button(onClick = { vm.saveHevyKey(hevyKey) }) { Text(if (state.settings.hevyKey.isBlank()) "Connect Hevy" else "Save key") }
             if (state.settings.hevyKey.isNotBlank()) OutlinedButton(onClick = { vm.syncHevy() }) { Text("Sync now") }
         }
-
-        HorizontalDivider()
-        Text("Health Connect", style = MaterialTheme.typography.titleMedium)
-        Text(state.healthStatus)
-        Text(
-            "Reads sleep, resting heart rate, HRV, heart rate and steps from your band's app so the coach can adjust for recovery.",
-            style = MaterialTheme.typography.bodySmall,
-        )
-        if (vm.health.available) OutlinedButton(onClick = { healthPermissions.launch(vm.health.permissions) }) { Text("Connect Health Connect") }
 
         HorizontalDivider()
         Text("Your data", style = MaterialTheme.typography.titleMedium)

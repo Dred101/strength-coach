@@ -1,7 +1,7 @@
 # Rep Coach
 
 Personal Android strength-training tracker with an AI coach. It plans each gym session from your
-history, today's energy, the time you have and your recovery data, then logs every set.
+history, today's energy and the time you have, then logs every set.
 
 ## Install on your phone
 
@@ -24,8 +24,6 @@ upload `RepCoach.aab` from the same release to a Google Play internal test track
 3. **Optional: Settings, Hevy sync.** To keep logging in Hevy, paste your Hevy API key (needs Hevy Pro;
    hevy.com, Settings, Developer). Rep Coach pulls new Hevy workouts when it opens and before each plan,
    and **Send to Hevy** on a plan creates a "Rep Coach" routine in Hevy to follow and log.
-4. **Settings, Connect Health Connect.** Your band's app (Fitbit or Google Health) must be syncing into
-   Health Connect for sleep, resting heart rate and HRV to show up.
 
 ## How the coach works
 
