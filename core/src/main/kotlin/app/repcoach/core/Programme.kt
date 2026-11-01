@@ -16,7 +16,21 @@ data class Programme(
     val startMillis: Long,
     /** Counts blocks, so a new block can rotate the accessories. */
     val block: Int = 1,
+    /** Layout version, so a programme saved by an older build can be brought up to date. */
+    val version: Int = 1,
 ) {
+    /** Brings a programme saved by an older build up to the current layout without changing its lifts. */
+    fun upgraded(): Programme {
+        if (version >= VERSION) return this
+        val days = days.map { d ->
+            if (d.key != "A") d else {
+                val bench = d.exercises.filter { it.anchor && "bench press" in it.name.lowercase() }
+                d.copy(title = "Full Body A: Bench and squat", exercises = bench + (d.exercises - bench.toSet()))
+            }
+        }
+        return copy(days = days, version = VERSION)
+    }
+
     /** Compound lifts kept for the whole block. */
     val anchors: Set<String> get() = days.flatMap { d -> d.exercises.filter { it.anchor }.map { it.name } }.toSet()
 
@@ -30,15 +44,18 @@ data class Programme(
     companion object {
         const val BLOCK_WEEKS = 8
         const val MINUTES = 75
+        const val VERSION = 2
         private const val WEEK = 7 * 24 * 3_600_000L
 
         /** Each slot lists the lifts that fit it, in order of preference. */
         private class Slot(val sets: Int, val anchor: Boolean, val options: List<String>)
 
         private val templates = listOf(
-            Triple("A", "Squat and bench", listOf(
-                Slot(4, true, listOf("Squat (Barbell)", "Leg Press (Machine)")),
+            // Bench goes first: lifts done first gain a little more strength (Nunes et al. 2021), and
+            // bench is the lift this lifter most needs to move.
+            Triple("A", "Bench and squat", listOf(
                 Slot(4, true, listOf("Bench Press (Barbell)", "Bench Press (Dumbbell)")),
+                Slot(4, true, listOf("Squat (Barbell)", "Leg Press (Machine)")),
                 Slot(3, true, listOf("Romanian Deadlift (Barbell)")),
                 Slot(3, false, listOf("Chest Supported Incline Row (Dumbbell)", "Seated Cable Row - V Grip (Cable)", "Single Arm Cable Row", "Seated Cable Row", "Dumbbell Row")),
                 Slot(3, false, listOf("Single Arm Lateral Raise (Cable)", "Lateral Raise (Dumbbell)")),
@@ -78,7 +95,7 @@ data class Programme(
                 }
                 ProgrammeDay(key, "Full Body $key: $focus", exercises)
             }
-            return Programme(days, p.now, block)
+            return Programme(days, p.now, block, VERSION)
         }
     }
 }

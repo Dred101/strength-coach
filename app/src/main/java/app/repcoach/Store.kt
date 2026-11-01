@@ -82,7 +82,7 @@ class Store(context: Context) {
 
     /** The lifter's Full Body A and B for the current block. */
     var programme: Programme?
-        get() = prefs.getString("programme", null)?.let { runCatching { json.decodeFromString(Programme.serializer(), it) }.getOrNull() }
+        get() = prefs.getString("programme", null)?.let { runCatching { json.decodeFromString(Programme.serializer(), it) }.getOrNull()?.upgraded() }
         set(value) { prefs.edit().putString("programme", value?.let { json.encodeToString(Programme.serializer(), it) }).apply() }
 
     /** A document the user picked once; every change to workouts is copied there. */
