@@ -47,14 +47,6 @@ class RecoveryTest {
         assertTrue(plan.exercises.all { listOf("recovered", "fresh", "ready").any { w -> w in it.reason } }, plan.exercises.map { it.reason }.toString())
     }
 
-    @Test fun fullBodyDaysRotateAfterTheLastOneDone() {
-        val history = listOf(workout(72, "Full body A", *fullBodyA))
-        val plan = Planner(Progression(history, now)).plan(CheckIn(7, 60))
-        assertEquals("Full body B", plan.title)
-        val again = Planner(Progression(history + workout(-1, "Full body B", *fullBodyA), now + 80 * hour)).plan(CheckIn(7, 60))
-        assertEquals("Full body C", again.title)
-    }
-
     @Test fun whyCarriesRulesFactsAndResearch() {
         val history = listOf(workout(30, "Full body A", *fullBodyA))
         val p = Progression(history, now)

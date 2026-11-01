@@ -1,38 +1,47 @@
 package app.repcoach.core
 
+import java.time.Instant
+import java.time.ZoneId
 import kotlin.math.roundToInt
 
 /**
  * Builds a session without the AI: used as the offline fallback, and as the draft and the
  * progression targets that Claude works from.
  */
-class Planner(private val progression: Progression) {
+class Planner(private val progression: Progression, programme: Programme? = null) {
     data class Slot(val muscle: Muscle, val kind: Kind?)
 
-    private val fullBody = listOf(
-        // A: squat and flat bench focus
-        listOf(Slot(Muscle.QUADS, Kind.COMPOUND), Slot(Muscle.CHEST, Kind.COMPOUND), Slot(Muscle.BACK, Kind.ACCESSORY),
-            Slot(Muscle.HAMSTRINGS, null), Slot(Muscle.SHOULDERS, Kind.ISOLATION), Slot(Muscle.TRICEPS, null), Slot(Muscle.BICEPS, null)),
-        // B: incline and rows, machine legs
-        listOf(Slot(Muscle.CHEST, Kind.ACCESSORY), Slot(Muscle.QUADS, Kind.ACCESSORY), Slot(Muscle.BACK, Kind.ACCESSORY),
-            Slot(Muscle.SHOULDERS, Kind.ACCESSORY), Slot(Muscle.GLUTES, null), Slot(Muscle.REAR_DELTS, null), Slot(Muscle.BICEPS, null)),
-        // C: bench again, pull focus, posterior chain
-        listOf(Slot(Muscle.CHEST, Kind.COMPOUND), Slot(Muscle.BACK, Kind.COMPOUND), Slot(Muscle.QUADS, null),
-            Slot(Muscle.HAMSTRINGS, null), Slot(Muscle.CHEST, Kind.ISOLATION), Slot(Muscle.TRICEPS, null), Slot(Muscle.CORE, null)),
-    )
+    /** The lifter's Full Body A and B; designed from their history if none has been saved yet. */
+    val programme: Programme = programme ?: Programme.design(progression)
+
+    /**
+     * The programme day still to do this week (Monday to Sunday), alternating with the last one
+     * done, or null once A and B are both done.
+     */
+    fun dueDay(zone: ZoneId = ZoneId.systemDefault()): ProgrammeDay? {
+        val today = Instant.ofEpochMilli(progression.now).atZone(zone).toLocalDate()
+        val monday = today.minusDays((today.dayOfWeek.value - 1).toLong()).atStartOfDay(zone).toInstant().toEpochMilli()
+        val done = progression.workouts.filter { it.startMillis >= monday }.mapNotNull { dayKey(it.title) }.toSet()
+        val left = programme.days.filter { it.key !in done }
+        val lastKey = progression.workouts.lastOrNull { dayKey(it.title) != null }?.let { dayKey(it.title) }
+        return left.firstOrNull { it.key != lastKey } ?: left.firstOrNull()
+    }
 
     fun plan(checkIn: CheckIn, recovery: Recovery? = null): SessionPlan {
         var energy = adjustedEnergy(checkIn.energy, recovery)
-        val extraSession = progression.sessionsThisWeek() >= 3
-        val used = mutableSetOf<String>()
-        val lastSession = progression.recent(10).lastOrNull()?.exercises?.map { it.name }?.toSet().orEmpty()
-
-        // Muscles that did hard sets in the last 48 hours aren't ready to be trained hard again.
         val muscles = MuscleRecovery(progression.workouts, progression.now)
         val tired = muscles.recovering()
+
+        // A or B when it's due and its main lifts' muscles have recovered from the last 48 hours.
+        val due = dueDay()
+        val dueBlocked = due?.exercises.orEmpty().filter { it.anchor }.map { Exercises.info(it.name).primary }.filter { it in tired }.distinct()
+        if (due != null && dueBlocked.isEmpty()) return programmeDay(due, checkIn, energy, muscles)
+
+        // Otherwise an in-between day: exercises rotate freely, away from A and B's lifts.
+        val used = mutableSetOf<String>()
+        val lastSession = progression.recent(10).lastOrNull()?.exercises?.map { it.name }?.toSet().orEmpty()
         val tiredMajor = tired.intersect(MuscleRecovery.MAJOR)
-        val day = nextDay()
-        val base = if (extraSession) varietySlots() else fullBody[day]
+        val base = varietySlots()
         val fresh = base.filter { it.muscle !in tired }
         // Most of the body is still recovering: rest is the best plan, with an easy option if they want one.
         val restDay = tiredMajor.size >= 4 && fresh.count { it.muscle in MuscleRecovery.MAJOR } < 2
@@ -43,7 +52,7 @@ class Planner(private val progression: Progression) {
             else -> fresh + varietySlots(exclude = tired + fresh.map { it.muscle }).take(base.size - fresh.size)
         }
         if (restDay) energy = energy.coerceAtMost(4)
-        val avoid = if (extraSession || tired.isNotEmpty()) lastSession else emptySet()
+        val avoid = lastSession + programme.allNames
         val picks = slots.mapNotNull { slot -> pick(slot, used, avoid = avoid) }
             .onEach { used += it }
             .toMutableList()
@@ -71,17 +80,15 @@ class Planner(private val progression: Progression) {
             spent += cost
         }
 
-        val title = when {
-            restDay -> "Recovery day"
-            extraSession -> "Variety session"
-            else -> "Full body ${"ABC"[day]}"
-        }
+        val title = if (restDay) "Recovery day" else "Mixed session"
         val summary = buildString {
             append(
                 when {
+                    due != null -> "${due.title} is due, but your ${dueBlocked.joinToString(", ") { it.label() }} trained hard in the last 48 hours, so do it in a day or two. "
+                    else -> "Full Body A and B are done this week. "
+                } + when {
                     restDay -> "Your ${tiredMajor.sortedBy { it.ordinal }.joinToString(", ") { it.label() }} did hard sets in the last 48 hours and aren't recovered yet, so resting today is the best choice. If you'd still like to train, this is an easy session at the same weights, well short of failure."
-                    extraSession -> "You've already done 3 sessions this week, so today mixes things up and tops up the muscles with the fewest sets."
-                    else -> "Full-body day ${progression.sessionsThisWeek() + 1} of 3: training every muscle two or three times a week helps strength most."
+                    else -> "Today is a mixed session: different exercises from A and B, for the muscles with the fewest sets this week."
                 }
             )
             if (!restDay && tired.isNotEmpty()) append(" Your ${tired.sortedBy { it.ordinal }.joinToString(", ") { it.label() }} trained hard in the last 48 hours, so today works muscles that have recovered.")
@@ -96,11 +103,34 @@ class Planner(private val progression: Progression) {
         return SessionPlan(title, "$summary About $minutes minutes at your usual pace.", planned, source = "rules", estimatedMinutes = minutes)
     }
 
-    /** The full-body day after the last one done; by session count if no day is named in the history. */
-    private fun nextDay(): Int {
-        val letter = progression.workouts.lastOrNull { it.title.startsWith("Full body ") }?.title?.removePrefix("Full body ")?.firstOrNull()
-        val i = if (letter == null) -1 else "ABC".indexOf(letter)
-        return if (i >= 0) (i + 1) % fullBody.size else progression.recent(21).size % fullBody.size
+    /** Full Body A or B exactly as designed: the same lifts every week, each one progressed. */
+    private fun programmeDay(day: ProgrammeDay, checkIn: CheckIn, energy: Int, muscles: MuscleRecovery): SessionPlan {
+        val pace = Pace(progression.workouts)
+        val budget = pace.budgetSeconds(checkIn.minutes)
+        val week = programme.week(progression.now)
+        val targets = mutableListOf<Target>()
+        var spent = 0
+        for (ex in day.exercises) {
+            var t = progression.target(ex.name, energy, ex.sets)
+            val role = if (ex.anchor) "Main lift, fixed for the block: beat last time's weight or reps." else "Supporting lift for this block."
+            t = t.copy(note = "$role ${t.note} ${muscles.readyNote(Exercises.info(ex.name).primary)}")
+            val cost = pace.exerciseSeconds(t.sets, t.restSeconds)
+            // Short on time: keep every main lift and drop supporting lifts that don't fit.
+            if (!ex.anchor && spent + cost > budget) continue
+            targets += t
+            spent += cost
+        }
+        val stalled = progression.plateaus().filter { it.exercise in programme.anchors }
+        val summary = buildString {
+            append("Week ${week.coerceAtMost(99)} of ${Programme.BLOCK_WEEKS} of this block. ")
+            append("The main lifts stay the same all block so each session can beat the last, and A plus B train every muscle twice a week.")
+            if (week > Programme.BLOCK_WEEKS) append(" This block has run its course: start a new block in Settings to freshen the supporting lifts.")
+            if (energy <= 4) append(" Energy is low, so volume is trimmed and nothing goes up in weight.")
+            if (stalled.isNotEmpty()) append(" ${stalled.joinToString(", ") { it.exercise }} ${if (stalled.size == 1) "has" else "have"} stalled; Ask why for options.")
+        }
+        val planned = targets.map { it.toPlanned() }
+        val minutes = pace.planMinutes(planned)
+        return SessionPlan(day.title, "$summary About $minutes minutes at your usual pace.", planned, source = "rules", estimatedMinutes = minutes)
     }
 
     /** Lowers effective energy when recovery data shows poor sleep or an elevated resting HR. */
@@ -132,6 +162,9 @@ class Planner(private val progression: Progression) {
     }
 
     companion object {
+        /** "A" for any title naming Full Body A, including Hevy's "Rep Coach: Full Body A: …". */
+        fun dayKey(title: String): String? = Regex("""Full Body ([A-Z])\b""").find(title)?.groupValues?.get(1)
+
         /** Accessories that commonly help a stalled compound lift. */
         fun supportFor(exercise: String): List<String> {
             val n = exercise.lowercase()

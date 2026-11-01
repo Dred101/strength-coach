@@ -29,6 +29,7 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
@@ -37,6 +38,7 @@ import app.repcoach.AppViewModel
 import app.repcoach.Screen
 import app.repcoach.UiState
 import app.repcoach.core.PlannedExercise
+import app.repcoach.core.Planner
 import app.repcoach.core.Progression
 import app.repcoach.core.Why
 import java.time.Instant
@@ -70,7 +72,11 @@ fun HomeScreen(state: UiState, vm: AppViewModel) {
         Card(Modifier.fillMaxWidth()) {
             Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text("This week", style = MaterialTheme.typography.titleMedium)
-                Text("${p.sessionsThisWeek()} of 3 full-body sessions done")
+                Text("${p.sessionsThisWeek()} session${if (p.sessionsThisWeek() == 1) "" else "s"} so far")
+                if (state.workouts.isNotEmpty()) {
+                    val due = remember(state.workouts, state.programme) { Planner(p, state.programme).dueDay() }
+                    Text(due?.let { "Next: ${it.title}" } ?: "Full Body A and B done: any extra days are mixed sessions")
+                }
                 last?.let {
                     val days = Progression.daysBetween(it.startMillis, System.currentTimeMillis())
                     Text("Last session: ${it.title}, " + when (days) { 0 -> "today"; 1 -> "yesterday"; else -> "$days days ago" })

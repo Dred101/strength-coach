@@ -15,6 +15,7 @@ import app.repcoach.core.HevyApi
 import app.repcoach.core.HevyCsv
 import app.repcoach.core.LoggedSet
 import app.repcoach.core.Planner
+import app.repcoach.core.Programme
 import app.repcoach.core.Progression
 import app.repcoach.core.Recovery
 import app.repcoach.core.Records
@@ -41,7 +42,7 @@ data class UiState(
     val workouts: List<Workout> = emptyList(),
     val settings: Settings = Settings("", ClaudeCoach.DEFAULT_MODEL, ""),
     val recovery: Recovery? = null,
-    val checkIn: CheckIn = CheckIn(energy = 7, minutes = 60),
+    val checkIn: CheckIn = CheckIn(energy = 7, minutes = Programme.MINUTES),
     val plan: SessionPlan? = null,
     val active: ActiveWorkout? = null,
     val busy: String? = null,
@@ -49,6 +50,7 @@ data class UiState(
     val message: String? = null,
     val why: WhyChat? = null,
     val hevyStatus: String? = null,
+    val programme: Programme? = null,
 )
 
 /** An open "Ask why" conversation about one suggestion. */
@@ -72,6 +74,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                     workouts = workouts,
                     settings = store.loadSettings(),
                     autoBackup = store.autoBackupUri != null,
+                    programme = store.programme,
                     active = active,
                     screen = if (active != null) Screen.WORKOUT else Screen.HOME,
                 )
@@ -94,23 +97,41 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             _state.update { it.copy(busy = "Getting your latest workouts from Hevy…", message = null) }
             syncHevyNow(quiet = true)
         }
+        ensureProgramme()
         val s = _state.value
         _state.update { it.copy(busy = "Planning your session…") }
         val recovery: Recovery? = null
         val result = withContext(Dispatchers.IO) {
             if (s.settings.apiKey.isBlank()) {
-                Result.success(Planner(Progression(s.workouts)).plan(s.checkIn, recovery) to
+                Result.success(Planner(Progression(s.workouts), s.programme).plan(s.checkIn, recovery) to
                     "No Claude API key yet, so this plan comes from the built-in rules. Add a key in Settings for AI coaching.")
             } else runCatching {
                 ClaudeCoach(s.settings.apiKey, s.settings.model.ifBlank { ClaudeCoach.DEFAULT_MODEL })
-                    .plan(s.workouts, s.checkIn, recovery, s.settings.notes) to null
+                    .plan(s.workouts, s.checkIn, recovery, s.settings.notes, s.programme) to null
             }.recoverCatching { e ->
-                Planner(Progression(s.workouts)).plan(s.checkIn, recovery) to
+                Planner(Progression(s.workouts), s.programme).plan(s.checkIn, recovery) to
                     "Couldn't reach Claude (${e.message ?: e.javaClass.simpleName}), so this plan comes from the built-in rules."
             }
         }
         val (plan, note) = result.getOrThrow()
         _state.update { it.copy(busy = null, plan = plan, recovery = recovery, message = note, screen = Screen.PLAN) }
+    }
+
+    // ---- Programme ----
+
+    /** Designs Full Body A and B from the history the first time they're needed, then keeps them for the block. */
+    fun ensureProgramme() {
+        if (_state.value.programme != null || _state.value.workouts.isEmpty()) return
+        val p = Programme.design(Progression(_state.value.workouts))
+        store.programme = p
+        _state.update { it.copy(programme = p) }
+    }
+
+    /** Starts a new block: same main lifts, supporting lifts moved on to the next variation. */
+    fun newBlock() {
+        val p = Programme.design(Progression(_state.value.workouts), _state.value.programme)
+        store.programme = p
+        _state.update { it.copy(programme = p, message = "New block started. Main lifts stay; supporting lifts have changed.") }
     }
 
     // ---- Hevy ----
