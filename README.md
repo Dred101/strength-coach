@@ -32,8 +32,10 @@ upload `RepCoach.aab` from the same release to a Google Play internal test track
     plans out as a routine that is replaced each time).
   - `Progression` does the numbers: estimated 1RM (Epley, counting reps in reserve), double
     progression within each exercise's rep range, energy adjustments, plateau detection and weekly volume.
-  - `Planner` builds a session without AI: three full-body templates a week, then variety sessions that
-    favour muscles with the least volume, sized to the minutes available. `MuscleRecovery` keeps a muscle
+  - `Programme` holds the week's two fixed sessions, Full Body A and B (about 75 minutes, compound-led),
+    designed from the lifts in your history. Main lifts stay for an 8-week block; a new block rotates the
+    supporting lifts. `Planner` plans A or B when due, and mixed sessions with different exercises on
+    any other day, favouring the muscles with the least volume, sized to the minutes available. `MuscleRecovery` keeps a muscle
     that did hard sets in the last 48 hours off hard work, and turns the plan into a rest day when most
     of the body is still recovering.
   - `Why` gathers the facts, rules and research behind any plan, exercise or set for **Ask why**, where

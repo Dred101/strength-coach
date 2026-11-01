@@ -27,9 +27,9 @@ class ClaudeCoach(
 ) {
     private val client: AnthropicClient = AnthropicOkHttpClient.builder().apiKey(apiKey).build()
 
-    fun plan(workouts: List<Workout>, checkIn: CheckIn, recovery: Recovery?, equipmentNotes: String = ""): SessionPlan {
+    fun plan(workouts: List<Workout>, checkIn: CheckIn, recovery: Recovery?, equipmentNotes: String = "", programme: Programme? = null): SessionPlan {
         val progression = Progression(workouts)
-        val planner = Planner(progression)
+        val planner = Planner(progression, programme)
         val draft = planner.plan(checkIn, recovery)
         val energy = planner.adjustedEnergy(checkIn.energy, recovery)
         val context = CoachContext.build(progression, checkIn, recovery, draft, equipmentNotes)
@@ -60,6 +60,14 @@ class ClaudeCoach(
                 targetReps = if (engineWeight != null) target.targetReps else null,
                 restSeconds = ex.restSeconds.coerceIn(45, 300),
             )
+        }
+        // Full Body A and B are fixed: keep the engine's exercises, sets and order, and take only
+        // Claude's wording for the reasons and summary.
+        if (Planner.dayKey(draft.title) != null) {
+            val reasons = exercises.associate { it.name to it.reason }
+            val kept = draft.exercises.map { e -> reasons[e.name]?.takeIf { it.isNotBlank() }?.let { e.copy(reason = it) } ?: e }
+            val minutes = Pace(progression.workouts).planMinutes(kept)
+            return SessionPlan(draft.title, "${parsed.summary} About $minutes minutes at your usual pace.", kept, source = "claude", estimatedMinutes = minutes)
         }
         val minutes = Pace(progression.workouts).planMinutes(exercises)
         return SessionPlan(parsed.title, "${parsed.summary} About $minutes minutes at your usual pace.", exercises, source = "claude", estimatedMinutes = minutes)
@@ -180,9 +188,12 @@ class ClaudeCoach(
             watch, a summary of recent training, per-lift trends, and a draft session built by a rules engine.
 
             How to plan:
-            - The lifter's default week is three full-body sessions. If they have already trained three or more
-              times this week, today is a variety session: use different machines or variations from the last
-              session and favour muscle groups with the lowest volume this week.
+            - The lifter's week is built on two fixed full-body sessions, Full Body A and Full Body B, done once
+              each per week and built mostly on compound lifts that stay the same for an 8-week block. When the
+              draft is Full Body A or B, keep its exercises, sets and order exactly and write only the reasons
+              and summary. Any other day is a mixed session between them: rotate exercises freely (different
+              machines, grips and angles from A and B and from the last session) and favour muscle groups with
+              the lowest volume this week, so every muscle is still trained at least twice a week.
             - Fit the session to the minutes available. Budget about 40 seconds per working set plus its rest,
               one minute per exercise for warm-up sets and setup, and five minutes overall to warm up, then
               multiply by the lifter's pace factor in the briefing, which is learned from how long their

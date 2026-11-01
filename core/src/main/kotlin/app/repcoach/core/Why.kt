@@ -30,6 +30,9 @@ object Why {
     val FREQUENCY = Evidence("Each muscle two or three times a week",
         "Each extra training day added a little strength; frequency barely affected growth once weekly sets were equal.",
         "Pelland et al. 2026; Schoenfeld, Ogborn & Krieger 2016")
+    val VARIATION = Evidence("Fixed main lifts in A and B, varied exercises in between",
+        "Trained men gained the same strength and size whether exercises were fixed or changed every session, and variety helped motivation; changing exercises too often, or for ones that do the same job, can hold progress back.",
+        "Baz-Valle et al. 2019; Kassiano et al. 2022")
     val RECOVERY = Evidence("48 hours before the same muscle works hard again",
         "After sets close to failure, strength and speed took 24 to 48 hours or more to come back; sets stopped short of failure recovered faster. Training on back-to-back days gave the same gains when weekly volume was equal.",
         "Morán-Navarro et al. 2017; Yang et al. 2018")
@@ -76,7 +79,7 @@ object Why {
             recovery?.sleepHours?.let { add("Sleep last night: ${it.oneDecimal()} h.") }
             add("Pace: " + Pace(p.workouts).describe())
         }
-        val evidence = listOfNotNull(VOLUME, FREQUENCY, RECOVERY, if (p.plateaus().isNotEmpty()) DELOAD else null, if (recovery?.sleepHours != null) SLEEP else null)
+        val evidence = listOfNotNull(VARIATION, VOLUME, FREQUENCY, RECOVERY, if (p.plateaus().isNotEmpty()) DELOAD else null, if (recovery?.sleepHours != null) SLEEP else null)
         return WhyTopic("today's plan (${plan.title})", facts, evidence)
     }
 

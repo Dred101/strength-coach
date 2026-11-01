@@ -39,6 +39,7 @@ import app.repcoach.AppViewModel
 import app.repcoach.Settings
 import app.repcoach.UiState
 import app.repcoach.core.ClaudeCoach
+import app.repcoach.core.Programme
 import app.repcoach.core.Progression
 import app.repcoach.core.SetType
 import app.repcoach.core.volumeKg
@@ -102,6 +103,28 @@ fun SettingsScreen(state: UiState, vm: AppViewModel) {
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         Text("Settings", style = MaterialTheme.typography.headlineSmall)
+
+        Text("Your programme", style = MaterialTheme.typography.titleMedium)
+        val programme = state.programme
+        if (programme == null) {
+            Text("Full Body A and B are designed from your history the first time you plan a session.", style = MaterialTheme.typography.bodySmall)
+            OutlinedButton(onClick = { vm.ensureProgramme() }, enabled = state.workouts.isNotEmpty()) { Text("Design A and B now") }
+        } else {
+            Text(
+                "Do A and B once each a week (about ${Programme.MINUTES} minutes each). Main lifts (★) stay the same for " +
+                    "${Programme.BLOCK_WEEKS} weeks so you can beat them every time; extra days in between use different exercises. " +
+                    "Block ${programme.block}, week ${programme.week(System.currentTimeMillis())} of ${Programme.BLOCK_WEEKS}.",
+                style = MaterialTheme.typography.bodySmall,
+            )
+            programme.days.forEach { day ->
+                Text(day.title, fontWeight = FontWeight.SemiBold)
+                day.exercises.forEach { e -> Text("${if (e.anchor) "★ " else "• "}${e.name}: ${e.sets} sets", style = MaterialTheme.typography.bodyMedium) }
+            }
+            OutlinedButton(onClick = { vm.newBlock() }) { Text("Start a new block") }
+            Text("Keeps the main lifts and moves supporting lifts on to another variation you know.", style = MaterialTheme.typography.bodySmall)
+        }
+
+        HorizontalDivider()
 
         Text("AI coach", style = MaterialTheme.typography.titleMedium)
         OutlinedTextField(

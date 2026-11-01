@@ -2,6 +2,7 @@ package app.repcoach
 
 import android.content.Context
 import app.repcoach.core.ClaudeCoach
+import app.repcoach.core.Programme
 import app.repcoach.core.SessionPlan
 import app.repcoach.core.Workout
 import kotlinx.serialization.Serializable
@@ -78,6 +79,11 @@ class Store(context: Context) {
         // A different key may be a different Hevy account: start again with a full sync.
         if (k != prefs.getString("hevyKey", "")) prefs.edit().putString("hevyKey", k).remove("hevyLastSync").remove("hevyRoutineId").apply()
     }
+
+    /** The lifter's Full Body A and B for the current block. */
+    var programme: Programme?
+        get() = prefs.getString("programme", null)?.let { runCatching { json.decodeFromString(Programme.serializer(), it) }.getOrNull() }
+        set(value) { prefs.edit().putString("programme", value?.let { json.encodeToString(Programme.serializer(), it) }).apply() }
 
     /** A document the user picked once; every change to workouts is copied there. */
     var autoBackupUri: String?
