@@ -27,7 +27,7 @@ class ProgrammeTest {
         val prog = Programme.design(Progression(listOf(older), now))
         val a = prog.day("A")!!.exercises.map { it.name }
         val b = prog.day("B")!!.exercises.map { it.name }
-        assertEquals(listOf("Squat (Barbell)", "Bench Press (Barbell)", "Romanian Deadlift (Barbell)"), a.take(3))
+        assertEquals(listOf("Bench Press (Barbell)", "Squat (Barbell)", "Romanian Deadlift (Barbell)"), a.take(3))
         assertTrue("Seated Cable Row - V Grip (Cable)" in a, "picks the row they already do")
         assertTrue("Preacher Curl (Machine)" in a)
         assertEquals("Deadlift (Barbell)", b.first())
@@ -50,7 +50,7 @@ class ProgrammeTest {
     @Test fun weekRunsAthenBthenMixedSessions() {
         assertTrue(planner(older).plan(CheckIn(7, 75)).title.startsWith("Full Body A"))
         // A done on Tuesday: B is due and its muscles have recovered.
-        val a = workout(72, "Full Body A: Squat and bench", "Squat (Barbell)", "Bench Press (Barbell)", "Romanian Deadlift (Barbell)")
+        val a = workout(72, "Full Body A: Bench and squat", "Squat (Barbell)", "Bench Press (Barbell)", "Romanian Deadlift (Barbell)")
         val b = planner(older, a).plan(CheckIn(7, 75))
         assertTrue(b.title.startsWith("Full Body B"), b.title)
         assertEquals(3, b.exercises.first { it.name == "Deadlift (Barbell)" }.sets)
@@ -63,7 +63,7 @@ class ProgrammeTest {
     }
 
     @Test fun dueDayWaitsForItsMainMusclesToRecover() {
-        val a = workout(100, "Full Body A: Squat and bench", "Squat (Barbell)", "Bench Press (Barbell)")
+        val a = workout(100, "Full Body A: Bench and squat", "Squat (Barbell)", "Bench Press (Barbell)")
         val rows = workout(20, "Extra", "Lat Pulldown (Cable)", "Seated Cable Row - V Grip (Cable)")
         val plan = planner(older, a, rows).plan(CheckIn(7, 60))
         assertEquals("Mixed session", plan.title)
@@ -77,7 +77,7 @@ class ProgrammeTest {
     }
 
     @Test fun titlesNameTheirDay() {
-        assertEquals("A", Planner.dayKey("Full Body A: Squat and bench"))
+        assertEquals("A", Planner.dayKey("Full Body A: Bench and squat"))
         assertEquals("B", Planner.dayKey("Rep Coach: Full Body B: Deadlift and overhead press"))
         assertEquals(null, Planner.dayKey("Full body A"))
     }
@@ -97,5 +97,21 @@ class ProgrammeTest {
             assertEquals(day.exercises.size, plan.exercises.size, "the whole day fits in ${Programme.MINUTES} minutes")
             assertTrue(plan.estimatedMinutes!! <= Programme.MINUTES)
         }
+    }
+
+    @Test fun olderSavedProgrammeMovesBenchFirstAndPlanFollows() {
+        val old = Programme(listOf(
+            ProgrammeDay("A", "Full Body A: Squat and bench", listOf(
+                ProgrammeExercise("Squat (Barbell)", 4, true), ProgrammeExercise("Bench Press (Barbell)", 4, true),
+                ProgrammeExercise("Romanian Deadlift (Barbell)", 3, true))),
+            ProgrammeDay("B", "Full Body B: Deadlift and overhead press", listOf(ProgrammeExercise("Deadlift (Barbell)", 3, true))),
+        ), now - 24 * hour)
+        val up = old.upgraded()
+        assertEquals(listOf("Bench Press (Barbell)", "Squat (Barbell)", "Romanian Deadlift (Barbell)"), up.day("A")!!.exercises.map { it.name })
+        assertEquals("Full Body A: Bench and squat", up.day("A")!!.title)
+        assertEquals(old.anchors, up.anchors)
+        assertEquals(up, up.upgraded())
+        val plan = Planner(Progression(listOf(older), now), up).plan(CheckIn(energy = 7, minutes = 75), null)
+        assertEquals("Bench Press (Barbell)", plan.exercises.first().name)
     }
 }
