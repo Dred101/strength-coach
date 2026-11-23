@@ -77,13 +77,4 @@ class SetPlanTest {
         assertEquals(1, Exercises.info("Lateral Raise (Dumbbell)").targetRir)
         assertEquals(2, Exercises.info("Squat (Barbell)").targetRir)
     }
-
-    @Test fun exportsStrongCsvForHevy() {
-        val w = Workout("x", "Full body A", 1_760_000_000_000, 1_760_003_600_000,
-            listOf(ExerciseLog("Bench Press (Barbell)", listOf(LoggedSet(80.0, 6, SetType.NORMAL, rir = 2.0), LoggedSet(80.0, 5, SetType.NORMAL)), "felt \"good\"")))
-        val lines = StrongCsv.export(listOf(w)).trim().lines()
-        assertEquals("\"Workout #\";\"Date\";\"Workout Name\";\"Duration (sec)\";\"Exercise Name\";\"Set Order\";\"Weight (kg)\";\"Reps\";\"RPE\";\"Distance (meters)\";\"Seconds\";\"Notes\";\"Workout Notes\"", lines[0])
-        assertEquals("\"1\";\"2025-10-09 08:53:20\";\"Full body A\";\"3600\";\"Bench Press (Barbell)\";\"1\";\"80.0\";\"6\";\"8.0\";\"\";\"\";\"felt \"\"good\"\"\";\"\"", lines[1])
-        assertEquals(3, lines.size)
-    }
 }

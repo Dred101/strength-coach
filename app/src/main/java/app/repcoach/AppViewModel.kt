@@ -7,25 +7,19 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import app.repcoach.core.ChatTurn
 import app.repcoach.core.CheckIn
-import app.repcoach.core.CoachContext
 import app.repcoach.core.ClaudeCoach
-import app.repcoach.core.ExerciseLog
-import app.repcoach.core.Exercises
+import app.repcoach.core.CoachContext
 import app.repcoach.core.HevyApi
 import app.repcoach.core.HevyCsv
-import app.repcoach.core.LoggedSet
+import app.repcoach.core.PlanReview
 import app.repcoach.core.Planner
 import app.repcoach.core.Programme
 import app.repcoach.core.Progression
 import app.repcoach.core.Recovery
-import app.repcoach.core.Records
-import app.repcoach.core.SessionPlan
-import app.repcoach.core.SetPlan
-import app.repcoach.core.SetType
-import app.repcoach.core.StrongCsv
+import app.repcoach.core.SavedPlan
+import app.repcoach.core.Why
 import app.repcoach.core.WhyTopic
 import app.repcoach.core.Workout
-import app.repcoach.core.toPlanned
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -35,31 +29,35 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.time.Instant
 
-enum class Screen { HOME, CHECK_IN, PLAN, WORKOUT, HISTORY, PROGRESS, RECORDS, SETTINGS }
+enum class Screen { HOME, CHECK_IN, PLAN, PROGRAMME, COACH, HISTORY, PROGRESS, RECORDS, SETTINGS }
+
+/** Which conversation a question belongs to: the general coach chat, or one recommended workout's. */
+const val COACH_CHAT = "coach"
 
 data class UiState(
     val screen: Screen = Screen.HOME,
     val workouts: List<Workout> = emptyList(),
     val settings: Settings = Settings("", ClaudeCoach.DEFAULT_MODEL, ""),
-    val recovery: Recovery? = null,
     val checkIn: CheckIn = CheckIn(energy = 7, minutes = Programme.MINUTES),
-    val plan: SessionPlan? = null,
-    val active: ActiveWorkout? = null,
+    /** Recommended workouts, newest first, each with its chat. */
+    val plans: List<SavedPlan> = emptyList(),
+    val openPlanId: String? = null,
+    val coachChat: List<ChatTurn> = emptyList(),
+    /** The chat waiting on the coach: [COACH_CHAT] or a plan id. */
+    val chatBusy: String? = null,
+    val chatError: String? = null,
+    /** Text to put in a chat's input box, from an "Ask about this" button. */
+    val draft: Pair<String, String>? = null,
+    /** The facts and research behind one suggestion, shown on request. */
+    val why: WhyTopic? = null,
     val busy: String? = null,
     val autoBackup: Boolean = false,
     val message: String? = null,
-    val why: WhyChat? = null,
     val hevyStatus: String? = null,
     val programme: Programme? = null,
-)
-
-/** An open "Ask why" conversation about one suggestion. */
-data class WhyChat(
-    val topic: WhyTopic,
-    val turns: List<ChatTurn> = emptyList(),
-    val thinking: Boolean = false,
-    val error: String? = null,
-)
+) {
+    val openPlan: SavedPlan? get() = plans.firstOrNull { it.id == openPlanId }
+}
 
 class AppViewModel(app: Application) : AndroidViewModel(app) {
     private val store = Store(app)
@@ -68,22 +66,22 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
 
     init {
         viewModelScope.launch {
-            val (workouts, active) = withContext(Dispatchers.IO) { store.loadWorkouts() to store.loadActive() }
+            val (workouts, plans, chat) = withContext(Dispatchers.IO) { Triple(store.loadWorkouts(), store.loadPlans(), store.loadCoachChat()) }
             _state.update {
                 it.copy(
                     workouts = workouts,
+                    plans = plans,
+                    coachChat = chat,
                     settings = store.loadSettings(),
                     autoBackup = store.autoBackupUri != null,
                     programme = store.programme,
-                    active = active,
-                    screen = if (active != null) Screen.WORKOUT else Screen.HOME,
                 )
             }
             syncHevyNow(quiet = true)
         }
     }
 
-    fun go(screen: Screen) = _state.update { it.copy(screen = screen, message = null) }
+    fun go(screen: Screen) = _state.update { it.copy(screen = screen, message = null, chatError = null) }
 
     fun dismissMessage() = _state.update { it.copy(message = null) }
 
@@ -114,7 +112,17 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             }
         }
         val (plan, note) = result.getOrThrow()
-        _state.update { it.copy(busy = null, plan = plan, recovery = recovery, message = note, screen = Screen.PLAN) }
+        val now = System.currentTimeMillis()
+        val saved = SavedPlan("plan-$now", now, s.checkIn.energy, s.checkIn.minutes, plan)
+        savePlans(listOf(saved) + _state.value.plans)
+        _state.update { it.copy(busy = null, openPlanId = saved.id, message = note, screen = Screen.PLAN) }
+    }
+
+    fun openPlan(id: String) = _state.update { it.copy(openPlanId = id, screen = Screen.PLAN, message = null, chatError = null) }
+
+    fun deletePlan(id: String) {
+        savePlans(_state.value.plans.filterNot { it.id == id })
+        _state.update { it.copy(openPlanId = null, screen = Screen.HOME) }
     }
 
     // ---- Programme ----
@@ -181,7 +189,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     /** Sends the current plan to Hevy as a routine, so it can be followed and logged there. */
     fun sendPlanToHevy() = viewModelScope.launch {
         val s = _state.value
-        val plan = s.plan ?: return@launch
+        val plan = s.openPlan?.plan ?: return@launch
         _state.update { it.copy(busy = "Sending to Hevy…") }
         val result = withContext(Dispatchers.IO) { runCatching { HevyApi(s.settings.hevyKey).sendRoutine(plan, store.hevyRoutineId) } }
         result.onSuccess { sent ->
@@ -196,187 +204,103 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     private fun formatTime(t: Instant): String =
         java.time.format.DateTimeFormatter.ofPattern("EEE HH:mm", java.util.Locale.UK).format(t.atZone(java.time.ZoneId.systemDefault()))
 
-    // ---- Ask why ----
+    // ---- Talking to the coach ----
 
-    fun openWhy(topic: WhyTopic) = _state.update { it.copy(why = WhyChat(topic)) }
+    fun showWhy(topic: WhyTopic?) = _state.update { it.copy(why = topic) }
 
-    fun closeWhy() = _state.update { it.copy(why = null) }
+    /** Opens a chat with a question started, for "Ask about this" buttons. */
+    fun startQuestion(chat: String, text: String) = _state.update {
+        it.copy(draft = chat to text, why = null, screen = if (chat == COACH_CHAT) Screen.COACH else Screen.PLAN,
+            openPlanId = if (chat == COACH_CHAT) it.openPlanId else chat)
+    }
 
-    /** Sends a question about the open topic to Claude, with the rules, research and training history behind it. */
-    fun askWhy(question: String) {
+    fun draftUsed() = _state.update { it.copy(draft = null) }
+
+    fun clearCoachChat() {
+        _state.update { it.copy(coachChat = emptyList(), chatError = null) }
+        persist { store.saveCoachChat(emptyList()) }
+    }
+
+    /** The general chat: questions about training, the programme or progress. */
+    fun askCoach(question: String) {
         val s = _state.value
-        val chat = s.why ?: return
-        if (question.isBlank() || chat.thinking) return
-        val turns = chat.turns + ChatTurn(fromLifter = true, text = question.trim())
-        _state.update { it.copy(why = chat.copy(turns = turns, thinking = true, error = null)) }
+        val q = question.trim()
+        if (q.isBlank() || s.chatBusy != null) return
+        val before = s.coachChat
+        val turns = before + ChatTurn(fromLifter = true, text = q)
+        _state.update { it.copy(coachChat = turns, chatBusy = COACH_CHAT, chatError = null) }
         viewModelScope.launch {
-            val plan = s.active?.plan ?: s.plan ?: SessionPlan("No plan yet", "", emptyList(), "none")
             val answer = withContext(Dispatchers.IO) {
                 runCatching {
-                    val briefing = chat.topic.asText() + "\n" + CoachContext.build(Progression(s.workouts), s.checkIn, s.recovery, plan, s.settings.notes)
-                    ClaudeCoach(s.settings.apiKey, s.settings.model.ifBlank { ClaudeCoach.DEFAULT_MODEL }).ask(briefing, turns)
+                    val briefing = CoachContext.overview(Progression(s.workouts), s.programme, s.settings.notes)
+                    coach(s).ask(briefing, recentTurns(turns))
                 }
             }
-            _state.update { st ->
-                val open = st.why?.takeIf { it.topic == chat.topic } ?: return@update st
-                answer.fold(
-                    onSuccess = { st.copy(why = open.copy(turns = turns + ChatTurn(fromLifter = false, text = it), thinking = false)) },
-                    // Drop the unanswered question so the conversation still alternates, and say what failed.
-                    onFailure = { e -> st.copy(why = open.copy(turns = chat.turns, thinking = false,
-                        error = "Couldn't reach Claude (${e.message ?: e.javaClass.simpleName}). Your question was: \"${question.trim()}\"")) },
-                )
+            answer.onSuccess { text ->
+                val all = turns + ChatTurn(fromLifter = false, text = text)
+                _state.update { it.copy(coachChat = all, chatBusy = null) }
+                persist { store.saveCoachChat(all) }
+            }.onFailure { e ->
+                // Drop the unanswered question so the conversation still alternates, and say what failed.
+                _state.update { it.copy(coachChat = before, chatBusy = null, chatError = failure(e, q)) }
             }
         }
     }
 
-    // ---- Logging ----
-
-    fun startWorkout() {
-        val plan = _state.value.plan ?: return
-        saveActive(ActiveWorkout(plan, System.currentTimeMillis(), _state.value.checkIn.energy))
-        go(Screen.WORKOUT)
-    }
-
-    fun startEmptyWorkout() {
-        saveActive(ActiveWorkout(SessionPlan("Workout", "", emptyList(), "manual"), System.currentTimeMillis(), _state.value.checkIn.energy))
-        go(Screen.WORKOUT)
-    }
-
-    fun logSet(exercise: String, set: LoggedSet, restSeconds: Int) {
-        val a = _state.value.active ?: return
-        val before = a.logged[exercise].orEmpty()
-        val broken = brokenRecords(exercise, before, set)
-        val logged = a.logged + (exercise to before + set)
-        saveActive(a.copy(logged = logged, restEndsAt = System.currentTimeMillis() + restSeconds * 1000L))
-        val moveOn = moveOnMessage(a, exercise, before, before + set)
-        val record = broken.takeIf { it.isNotEmpty() }?.let { "New record! $exercise: " + it.joinToString(", ") { r -> r.title } }
-        listOfNotNull(record, moveOn).takeIf { it.isNotEmpty() }?.let { msgs -> _state.update { it.copy(message = msgs.joinToString(" ")) } }
-    }
-
-    /** "Squat done. Next: Bench." when [after] completes the exercise's working sets and [before] didn't. */
-    private fun moveOnMessage(a: ActiveWorkout, exercise: String, before: List<LoggedSet>, after: List<LoggedSet>): String? {
-        val planned = a.plan.exercises.firstOrNull { it.name == exercise } ?: return null
-        val working = { sets: List<LoggedSet> -> sets.count { it.type != SetType.WARMUP } }
-        if (working(before) >= planned.sets || working(after) < planned.sets) return null
-        return SetPlan.nextUnfinished(a.plan.exercises, a.logged + (exercise to after), exercise)
-            ?.let { "$exercise done. Next: ${it.name}." } ?: "$exercise done. That's everything: finish when you're ready."
-    }
-
-    /** Ticks off an exercise: logs every set still to do as suggested, at the planned reps in reserve. */
-    fun completeExercise(exercise: String) {
-        val a = _state.value.active ?: return
-        val planned = a.plan.exercises.firstOrNull { it.name == exercise } ?: return
-        val before = a.logged[exercise].orEmpty()
-        val lastWeight = before.lastOrNull { it.type != SetType.WARMUP }?.weightKg
-        val sets = SetPlan.remaining(planned, before).map { s ->
-            LoggedSet(weightKg = s.weightKg ?: lastWeight ?: 0.0, reps = s.reps, type = SetType.NORMAL, rir = planned.targetRir.toDouble())
+    /** A question about one recommended workout. The coach may revise the workout if asked. */
+    fun askAboutPlan(planId: String, question: String) {
+        val s = _state.value
+        val saved = s.plans.firstOrNull { it.id == planId } ?: return
+        val q = question.trim()
+        if (q.isBlank() || s.chatBusy != null) return
+        val turns = saved.chat + ChatTurn(fromLifter = true, text = q)
+        updatePlan(planId) { it.copy(chat = turns) }
+        _state.update { it.copy(chatBusy = planId, chatError = null) }
+        viewModelScope.launch {
+            val reply = withContext(Dispatchers.IO) {
+                runCatching {
+                    val p = Progression(s.workouts)
+                    val done = PlanReview.match(s.plans, s.workouts)[planId]
+                    val briefing = buildString {
+                        append(PlanReview.asText(saved, done))
+                        appendLine()
+                        appendLine("## The app's reasoning for each exercise")
+                        saved.plan.exercises.forEach { e -> appendLine("### ${e.name}"); Why.forExercise(e, p).facts.forEach { appendLine("- $it") } }
+                        appendLine()
+                        append(Why.forPlan(saved.plan, p).asText())
+                        appendLine()
+                        append(CoachContext.programmeText(s.programme, p))
+                        if (s.settings.notes.isNotBlank()) appendLine("Notes from the lifter: ${s.settings.notes}")
+                        appendLine()
+                        append(CoachContext.history(p))
+                    }
+                    coach(s).discussPlan(briefing, recentTurns(turns), saved.plan, s.workouts)
+                }
+            }
+            reply.onSuccess { r ->
+                updatePlan(planId) { it.copy(plan = r.revised ?: it.plan, chat = turns + ChatTurn(fromLifter = false, text = r.answer)) }
+                _state.update { it.copy(chatBusy = null, message = if (r.revised != null) "The coach updated this workout." else it.message) }
+            }.onFailure { e ->
+                updatePlan(planId) { it.copy(chat = saved.chat) }
+                _state.update { it.copy(chatBusy = null, chatError = failure(e, q)) }
+            }
         }
-        if (sets.isEmpty()) return
-        saveActive(a.copy(logged = a.logged + (exercise to before + sets), restEndsAt = null))
-        moveOnMessage(a, exercise, before, before + sets)?.let { msg -> _state.update { it.copy(message = msg) } }
     }
 
-    /** Unticks an exercise: clears its logged sets so it can be done again. */
-    fun clearExercise(exercise: String) {
-        val a = _state.value.active ?: return
-        saveActive(a.copy(logged = a.logged - exercise))
+    private fun coach(s: UiState) = ClaudeCoach(s.settings.apiKey, s.settings.model.ifBlank { ClaudeCoach.DEFAULT_MODEL })
+
+    /** The last part of a long conversation, starting with the lifter, to keep each question cheap. */
+    private fun recentTurns(turns: List<ChatTurn>): List<ChatTurn> {
+        if (turns.size <= MAX_TURNS) return turns
+        val tail = turns.takeLast(MAX_TURNS)
+        return if (tail.first().fromLifter) tail else tail.drop(1)
     }
 
-    /** Changes a set already logged, for when the numbers went in wrong. */
-    fun editSet(exercise: String, index: Int, set: LoggedSet) {
-        val a = _state.value.active ?: return
-        val sets = a.logged[exercise].orEmpty().toMutableList()
-        if (index !in sets.indices) return
-        sets[index] = set
-        saveActive(a.copy(logged = a.logged + (exercise to sets)))
-    }
+    private fun failure(e: Throwable, question: String) =
+        "Couldn't reach Claude (${e.message ?: e.javaClass.simpleName}). Your question was: \"$question\""
 
-    fun deleteSet(exercise: String, index: Int) {
-        val a = _state.value.active ?: return
-        val sets = a.logged[exercise].orEmpty()
-        if (index !in sets.indices) return
-        saveActive(a.copy(logged = a.logged + (exercise to sets.filterIndexed { i, _ -> i != index })))
-    }
-
-    /** Records this set breaks, measured against history plus the sets already logged today. */
-    fun brokenRecords(exercise: String, earlierToday: List<LoggedSet>, set: LoggedSet): List<app.repcoach.core.PersonalRecord> {
-        val history = _state.value.workouts.mapNotNull { w ->
-            w.exercises.filter { it.name == exercise }.takeIf { it.isNotEmpty() }?.let { w.copy(exercises = it) }
-        }
-        if (history.isEmpty()) return emptyList()
-        val today = Workout("today", "", Long.MAX_VALUE, Long.MAX_VALUE, listOf(ExerciseLog(exercise, earlierToday)))
-        val current = Records.all(if (earlierToday.isEmpty()) history else history + today)[exercise].orEmpty()
-        return Records.brokenBy(set, exercise, current)
-    }
-
-    fun removeLastSet(exercise: String) {
-        val a = _state.value.active ?: return
-        val sets = a.logged[exercise].orEmpty().dropLast(1)
-        saveActive(a.copy(logged = a.logged + (exercise to sets)))
-    }
-
-    fun skipRest() {
-        val a = _state.value.active ?: return
-        saveActive(a.copy(restEndsAt = null))
-    }
-
-    fun addRest(seconds: Int) {
-        val a = _state.value.active ?: return
-        saveActive(a.copy(restEndsAt = (a.restEndsAt ?: System.currentTimeMillis()) + seconds * 1000L))
-    }
-
-    fun addExercise(name: String) {
-        val a = _state.value.active ?: return
-        if (a.plan.exercises.any { it.name == name }) return
-        val target = Progression(_state.value.workouts).target(name, a.energy)
-        val planned = target.toPlanned()
-        saveActive(a.copy(plan = a.plan.copy(exercises = a.plan.exercises + planned)))
-    }
-
-    /** Swaps an exercise for another hitting the same muscle, e.g. when a machine is taken. */
-    fun swapExercise(old: String) {
-        val a = _state.value.active ?: return
-        val info = Exercises.info(old)
-        val inPlan = a.plan.exercises.map { it.name }.toSet()
-        val p = Progression(_state.value.workouts)
-        val candidates = (p.exerciseNames() + Exercises.starterLibrary).distinct()
-            .filter { it !in inPlan && Exercises.info(it).primary == info.primary }
-        val next = candidates.firstOrNull { Exercises.info(it).kind == info.kind } ?: candidates.firstOrNull() ?: return
-        val t = p.target(next, a.energy)
-        val replacement = t.toPlanned().copy(reason = "Swapped in for $old. ${t.note}")
-        saveActive(a.copy(plan = a.plan.copy(exercises = a.plan.exercises.map { if (it.name == old) replacement else it })))
-    }
-
-    fun finishWorkout() {
-        val a = _state.value.active ?: return
-        val exercises = a.plan.exercises.map { it.name }.plus(a.logged.keys).distinct()
-            .mapNotNull { name -> a.logged[name]?.takeIf { it.isNotEmpty() }?.let { ExerciseLog(name, it) } }
-        if (exercises.isNotEmpty()) {
-            val workout = Workout(
-                id = "app-${a.startMillis}",
-                title = a.plan.title,
-                startMillis = a.startMillis,
-                endMillis = System.currentTimeMillis(),
-                exercises = exercises,
-                energy = a.energy,
-            )
-            val records = Records.newIn(_state.value.workouts + workout, workout)
-            saveWorkouts(_state.value.workouts + workout)
-            saveActive(null)
-            val summary = if (records.isEmpty()) "Workout saved." else
-                "Workout saved with ${records.size} new record${if (records.size == 1) "" else "s"}: " +
-                    records.take(6).joinToString("; ") { "${it.exercise} ${it.title}" }
-            _state.update { it.copy(plan = null, screen = if (records.isEmpty()) Screen.HISTORY else Screen.RECORDS, message = summary) }
-            return
-        }
-        saveActive(null)
-        _state.update { it.copy(plan = null, screen = Screen.HISTORY, message = "Nothing was logged, so the workout wasn't saved.") }
-    }
-
-    fun discardWorkout() {
-        saveActive(null)
-        go(Screen.HOME)
-    }
+    private fun updatePlan(id: String, change: (SavedPlan) -> SavedPlan) =
+        savePlans(_state.value.plans.map { if (it.id == id) change(it) else it })
 
     fun deleteWorkout(id: String) = saveWorkouts(_state.value.workouts.filterNot { it.id == id })
 
@@ -417,9 +341,16 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         }
         result.onSuccess { restored ->
             val existing = _state.value.workouts.map { it.id }.toSet()
-            val added = restored.filter { it.id !in existing }
+            val added = restored.workouts.filter { it.id !in existing }
             saveWorkouts(_state.value.workouts + added)
-            _state.update { it.copy(message = "Restored ${added.size} workouts from the backup.") }
+            val known = _state.value.plans.map { it.id }.toSet()
+            val plans = restored.plans.filter { it.id !in known }
+            if (plans.isNotEmpty()) savePlans((_state.value.plans + plans).sortedByDescending { it.createdMillis })
+            if (_state.value.coachChat.isEmpty() && restored.coachChat.isNotEmpty()) {
+                _state.update { it.copy(coachChat = restored.coachChat) }
+                persist { store.saveCoachChat(restored.coachChat) }
+            }
+            _state.update { it.copy(message = "Restored ${added.size} workouts and ${plans.size} recommended workouts from the backup.") }
         }.onFailure { e ->
             _state.update { it.copy(message = "Couldn't read that backup: ${e.message}") }
         }
@@ -428,27 +359,10 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     fun exportTo(uri: Uri) = viewModelScope.launch {
         val ok = withContext(Dispatchers.IO) {
             runCatching {
-                getApplication<Application>().contentResolver.openOutputStream(uri)!!.bufferedWriter().use { it.write(store.exportJson(_state.value.workouts)) }
+                getApplication<Application>().contentResolver.openOutputStream(uri)!!.bufferedWriter().use { it.write(store.exportJson(backup())) }
             }.isSuccess
         }
         _state.update { it.copy(message = if (ok) "Backup saved." else "Couldn't save the backup.") }
-    }
-
-    /** Writes the workouts logged in this app (not ones imported from Hevy) as a CSV Hevy can import. */
-    fun exportForHevy(uri: Uri) = viewModelScope.launch {
-        val mine = _state.value.workouts.filter { it.source != "hevy" }
-        val ok = mine.isNotEmpty() && withContext(Dispatchers.IO) {
-            runCatching {
-                getApplication<Application>().contentResolver.openOutputStream(uri)!!.bufferedWriter().use { it.write(StrongCsv.export(mine)) }
-            }.isSuccess
-        }
-        _state.update {
-            it.copy(message = when {
-                mine.isEmpty() -> "No workouts logged in Rep Coach yet, so there's nothing to send to Hevy."
-                ok -> "Saved ${mine.size} workouts for Hevy."
-                else -> "Couldn't save the file."
-            })
-        }
     }
 
     /** Turns on automatic backup to a document the user just created, and writes it straight away. */
@@ -464,7 +378,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         store.autoBackupUri = uri.toString()
         _state.update { it.copy(autoBackup = true) }
         viewModelScope.launch(Dispatchers.IO) {
-            val written = writeAutoBackup(_state.value.workouts)
+            val written = writeAutoBackup()
             _state.update { it.copy(message = if (written) "Automatic backup is on. It updates after every change." else "Automatic backup is on, but the first save failed.") }
         }
     }
@@ -481,25 +395,37 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         _state.update { it.copy(autoBackup = false, message = "Automatic backup is off.") }
     }
 
-    private fun writeAutoBackup(workouts: List<Workout>): Boolean {
+    private fun backup() = _state.value.let { Backup(it.workouts, it.plans, it.coachChat) }
+
+    private fun writeAutoBackup(): Boolean {
         val uri = store.autoBackupUri ?: return true
         return runCatching {
             getApplication<Application>().contentResolver.openOutputStream(Uri.parse(uri), "wt")!!
-                .bufferedWriter().use { it.write(store.exportJson(workouts)) }
+                .bufferedWriter().use { it.write(store.exportJson(backup())) }
         }.isSuccess
+    }
+
+    /** Saves to the phone off the main thread, then refreshes the automatic backup. */
+    private fun persist(write: () -> Unit) {
+        viewModelScope.launch(Dispatchers.IO) {
+            write()
+            if (!writeAutoBackup()) _state.update { it.copy(message = "Couldn't update your automatic backup. Check it in Settings.") }
+        }
     }
 
     private fun saveWorkouts(workouts: List<Workout>) {
         val sorted = workouts.sortedBy { it.startMillis }
         _state.update { it.copy(workouts = sorted) }
-        viewModelScope.launch(Dispatchers.IO) {
-            store.saveWorkouts(sorted)
-            if (!writeAutoBackup(sorted)) _state.update { it.copy(message = "Couldn't update your automatic backup. Check it in Settings.") }
-        }
+        persist { store.saveWorkouts(sorted) }
     }
 
-    private fun saveActive(active: ActiveWorkout?) {
-        _state.update { it.copy(active = active) }
-        store.saveActive(active)
+    private fun savePlans(plans: List<SavedPlan>) {
+        _state.update { it.copy(plans = plans) }
+        persist { store.savePlans(plans) }
+    }
+
+    companion object {
+        /** Messages sent with each question; older ones in a long chat stay on screen but aren't sent. */
+        const val MAX_TURNS = 20
     }
 }
