@@ -32,7 +32,7 @@ class Planner(private val progression: Progression, programme: Programme? = null
         val muscles = MuscleRecovery(progression.workouts, progression.now)
         val tired = muscles.recovering()
 
-        // A or B when it's due and its main lifts' muscles have recovered from the last 48 hours.
+        // A or B when it's due and its main lifts' muscles have recovered from their last hard sets.
         val due = dueDay()
         val dueBlocked = due?.exercises.orEmpty().filter { it.anchor }.map { Exercises.info(it.name).primary }.filter { it in tired }.distinct()
         if (due != null && dueBlocked.isEmpty()) return programmeDay(due, checkIn, energy, muscles)
@@ -84,14 +84,14 @@ class Planner(private val progression: Progression, programme: Programme? = null
         val summary = buildString {
             append(
                 when {
-                    due != null -> "${due.title} is due, but your ${dueBlocked.joinToString(", ") { it.label() }} trained hard in the last 48 hours, so do it in a day or two. "
+                    due != null -> "${due.title} is due, but your ${dueBlocked.joinToString(", ") { it.label() }} trained hard recently and need about ${dueBlocked.maxOf { muscles.status.getValue(it).hoursLeft }} more hours, so do it after that. "
                     else -> "Full Body A and B are done this week. "
                 } + when {
-                    restDay -> "Your ${tiredMajor.sortedBy { it.ordinal }.joinToString(", ") { it.label() }} did hard sets in the last 48 hours and aren't recovered yet, so resting today is the best choice. If you'd still like to train, this is an easy session at the same weights, well short of failure."
+                    restDay -> "Your ${tiredMajor.sortedBy { it.ordinal }.joinToString(", ") { it.label() }} did hard sets recently and aren't recovered yet (about ${tiredMajor.maxOf { muscles.status.getValue(it).hoursLeft }} more hours), so resting today is the best choice. If you'd still like to train, this is an easy session at the same weights, well short of failure."
                     else -> "Today is a mixed session: different exercises from A and B, for the muscles with the fewest sets this week."
                 }
             )
-            if (!restDay && tired.isNotEmpty()) append(" Your ${tired.sortedBy { it.ordinal }.joinToString(", ") { it.label() }} trained hard in the last 48 hours, so today works muscles that have recovered.")
+            if (!restDay && tired.isNotEmpty()) append(" Your ${tired.sortedBy { it.ordinal }.joinToString(", ") { it.label() }} trained hard recently, so today works muscles that have recovered.")
             if (energy <= 4 && !restDay) append(" Energy is low, so volume is trimmed and nothing goes up in weight.")
             if (stalled != null) append(" ${stalled.exercise} has stalled, so there's extra support work for it.")
             // Deloads cut volume and effort rather than stopping training: a full week off slightly

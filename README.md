@@ -48,7 +48,7 @@ upload `RepCoach.aab` from the same release to a Google Play internal test track
     designed from the lifts in your history. Main lifts stay for an 8-week block; a new block rotates the
     supporting lifts. `Planner` plans A or B when due, and mixed sessions with different exercises on
     any other day, favouring the muscles with the least volume, sized to the minutes available. `MuscleRecovery` keeps a muscle
-    that did hard sets in the last 48 hours off hard work, and turns the plan into a rest day when most
+    that did hard sets recently off hard work (36 hours for 3 to 5 sets, 48 after 6+ sets or sets to failure), and turns the plan into a rest day when most
     of the body is still recovering.
   - `Why` gathers the facts, rules and research behind any plan or exercise. `ClaudeCoach.discussPlan`
     answers questions about one workout (and returns a revised workout when asked to change it);
