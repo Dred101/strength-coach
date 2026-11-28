@@ -33,7 +33,7 @@ object Why {
     val VARIATION = Evidence("Fixed main lifts in A and B, varied exercises in between",
         "Trained men gained the same strength and size whether exercises were fixed or changed every session, and variety helped motivation; changing exercises too often, or for ones that do the same job, can hold progress back.",
         "Baz-Valle et al. 2019; Kassiano et al. 2022")
-    val RECOVERY = Evidence("48 hours before the same muscle works hard again",
+    val RECOVERY = Evidence("36 to 48 hours before the same muscle works hard again",
         "After sets close to failure, strength and speed took 24 to 48 hours or more to come back; sets stopped short of failure recovered faster. Training on back-to-back days gave the same gains when weekly volume was equal.",
         "Morán-Navarro et al. 2017; Yang et al. 2018")
     val REPS = Evidence("Rep range by exercise",

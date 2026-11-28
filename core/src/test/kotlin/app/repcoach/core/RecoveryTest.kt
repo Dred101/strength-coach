@@ -19,12 +19,13 @@ class RecoveryTest {
     private val fullBodyA = arrayOf("Squat (Barbell)", "Bench Press (Barbell)", "Seated Cable Row", "Leg Curl (Machine)",
         "Lateral Raise (Dumbbell)", "Triceps Rope Pushdown", "Hammer Curl (Dumbbell)")
 
-    @Test fun musclesTrainedHardInTheLast48HoursAreRecovering() {
+    @Test fun musclesTrainedHardRecentlyAreRecovering() {
         val r = MuscleRecovery(listOf(workout(20, "Full body A", "Bench Press (Barbell)")), now)
         assertTrue(Muscle.CHEST in r.recovering())
         // Triceps only assisted: 1.5 sets isn't enough to need a recovery gap.
         assertFalse(Muscle.TRICEPS in r.recovering())
-        assertEquals(29, r.status.getValue(Muscle.CHEST).hoursLeft)
+        // 3 sets short of failure need 36 hours; the session ended 19 hours ago.
+        assertEquals(17, r.status.getValue(Muscle.CHEST).hoursLeft)
         assertTrue(MuscleRecovery(listOf(workout(50, "Full body A", "Bench Press (Barbell)")), now).recovering().isEmpty())
     }
 
@@ -35,6 +36,28 @@ class RecoveryTest {
         assertTrue("resting today" in plan.summary, plan.summary)
         assertTrue(plan.exercises.all { it.sets <= 2 }, plan.exercises.toString())
         assertTrue(plan.exercises.all { it.weightKg == null || it.weightKg!! <= 60.0 }, "no weight increases")
+    }
+
+    @Test fun fortySixHoursAfterFullBodyIsNotARestDay() {
+        // Dave's case: a full-body session two days ago shouldn't still mean rest.
+        val history = listOf(workout(100, "Full body C", *fullBodyA), workout(46, "Full body A", *fullBodyA))
+        val p = Progression(history, now)
+        assertTrue(MuscleRecovery(history, now).recovering().isEmpty())
+        val plan = Planner(p).plan(CheckIn(7, 60))
+        assertNotEquals("Recovery day", plan.title)
+        assertFalse("resting today" in plan.summary, plan.summary)
+    }
+
+    @Test fun bigDosesAndFailureSetsKeepTheFull48Hours() {
+        val big = Workout("big", "Chest day", now - 41 * hour, now - 40 * hour,
+            listOf(ExerciseLog("Bench Press (Barbell)", List(6) { LoggedSet(60.0, 8, rir = 2.0) })))
+        assertEquals(8, MuscleRecovery(listOf(big), now).status.getValue(Muscle.CHEST).hoursLeft)
+        val failure = Workout("f", "Chest day", now - 41 * hour, now - 40 * hour,
+            listOf(ExerciseLog("Bench Press (Barbell)", List(3) { LoggedSet(60.0, 8, rir = if (it == 2) 0.0 else 2.0) })))
+        assertTrue(Muscle.CHEST in MuscleRecovery(listOf(failure), now).recovering())
+        val normal = Workout("n", "Chest day", now - 41 * hour, now - 40 * hour,
+            listOf(ExerciseLog("Bench Press (Barbell)", List(3) { LoggedSet(60.0, 8, rir = 2.0) })))
+        assertTrue(MuscleRecovery(listOf(normal), now).recovering().isEmpty())
     }
 
     @Test fun partlyTiredDaysTrainOnlyRecoveredMuscles() {

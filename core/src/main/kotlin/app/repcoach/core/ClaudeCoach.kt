@@ -45,7 +45,7 @@ class ClaudeCoach(
         val parsed = json.decodeFromString(ClaudePlan.serializer(), text)
 
         // The engine has the final say on load for anything with history, and keeps muscles that
-        // are still recovering from hard sets in the last 48 hours on easy work.
+        // are still recovering from recent hard sets on easy work.
         val tired = MuscleRecovery(progression.workouts, progression.now).recovering()
         val exercises = parsed.exercises.map { ex ->
             val target = progression.target(ex.name, energy, ex.sets)
@@ -199,10 +199,11 @@ class ClaudeCoach(
               multiply by the lifter's pace factor in the briefing, which is learned from how long their
               past sessions really took. The draft already fits; keep its size unless you have a reason.
             - Lower energy or poor recovery means fewer sets and more reps in reserve, not a different programme.
-            - Check "Muscle recovery" in the briefing. A muscle marked recovering did hard sets in the last
-              48 hours: don't give it hard work today. Train the recovered muscles instead, and if most of
-              the body is recovering, say rest is the best choice and offer only an easy session. Never
-              repeat the previous session when it was less than 48 hours ago.
+            - Check "Muscle recovery" in the briefing. A muscle marked recovering did hard sets recently
+              (within 36 hours, or 48 after 6+ sets or sets to failure): don't give it hard work today.
+              Train the recovered muscles instead, and if most of the body is recovering, say rest is the best
+              choice and offer only an easy session. Never repeat the previous session while its muscles are still marked recovering. A muscle marked
+              recovered is ready: don't tell the lifter to rest it.
             - Where a lift is flagged as plateaued, include one or two accessories that address the usual
               limiters for that lift (for bench: triceps lockout, upper-back stability, paused or close-grip work).
             - Prefer exercises the lifter already uses, spelled exactly as in their history, so progress tracks.
@@ -313,7 +314,7 @@ object CoachContext {
             appendLine("Below ${Progression.WEEKLY_SET_TARGET} sets so far: " + low.joinToString(", ") { it.name.lowercase() })
         }
         val muscles = MuscleRecovery(p.workouts, p.now)
-        appendLine("Muscle recovery (hard sets in the last ${MuscleRecovery.READY_HOURS} h mean not ready for hard work): " +
+        appendLine("Muscle recovery (3-5 hard sets need ${MuscleRecovery.READY_HOURS} h, 6+ sets or sets to failure ${MuscleRecovery.HEAVY_HOURS} h): " +
             Muscle.entries.joinToString("; ") { muscles.describe(it) })
         muscles.recovering().takeIf { it.isNotEmpty() }?.let { r ->
             appendLine("Recovering, so no hard sets today: " + r.joinToString(", ") { it.label() })
