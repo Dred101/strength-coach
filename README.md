@@ -1,7 +1,8 @@
 # Rep Coach
 
-Personal Android strength-training tracker with an AI coach. It plans each gym session from your
-history, today's energy and the time you have, then logs every set.
+Personal Android strength coach. It gives advice and structure, not tracking: you log your workouts
+in Hevy, and Rep Coach designs your programme, recommends each session from your Hevy history,
+today's energy and the time you have, and lets you ask the coach about any workout it recommends.
 
 ## Install on your phone
 
@@ -21,9 +22,20 @@ upload `RepCoach.aab` from the same release to a Google Play internal test track
 1. **Settings, Import Hevy CSV.** In Hevy: Profile, Settings, Export & Import Data, Export Workouts.
 2. **Settings, Claude API key.** Create one at console.anthropic.com. Without a key the app still plans
    sessions with its built-in rules.
-3. **Optional: Settings, Hevy sync.** To keep logging in Hevy, paste your Hevy API key (needs Hevy Pro;
-   hevy.com, Settings, Developer). Rep Coach pulls new Hevy workouts when it opens and before each plan,
-   and **Send to Hevy** on a plan creates a "Rep Coach" routine in Hevy to follow and log.
+3. **Optional: Settings, Hevy sync.** With Hevy Pro, paste your Hevy API key (hevy.com, Settings,
+   Developer). Rep Coach pulls new Hevy workouts when it opens and before each plan, and **Send to Hevy**
+   on a plan creates a "Rep Coach" routine in Hevy to follow and log. Without Pro, import a fresh Hevy
+   export from the Today tab now and then.
+
+## Using it
+
+- **Today:** plan a session (energy and minutes), and see every recommended workout, marked done once
+  it shows up in your Hevy history.
+- **A recommended workout:** each exercise with its reason, **Why?** for the facts and research behind it,
+  **How it went** (the plan next to what you logged in Hevy), and a chat with the coach about that workout.
+  Ask for a change (a swap, less time, a sore joint) and the coach updates the workout.
+- **Programme:** your 8-week block, Full Body A and B, why each lift is there and its next target.
+- **Coach:** a general chat about your training, programme and progress.
 
 ## How the coach works
 
@@ -38,12 +50,16 @@ upload `RepCoach.aab` from the same release to a Google Play internal test track
     any other day, favouring the muscles with the least volume, sized to the minutes available. `MuscleRecovery` keeps a muscle
     that did hard sets in the last 48 hours off hard work, and turns the plan into a rest day when most
     of the body is still recovering.
-  - `Why` gathers the facts, rules and research behind any plan, exercise or set for **Ask why**, where
-    `ClaudeCoach.ask` answers follow-up questions and challenges.
+  - `Why` gathers the facts, rules and research behind any plan or exercise. `ClaudeCoach.discussPlan`
+    answers questions about one workout (and returns a revised workout when asked to change it);
+    `ClaudeCoach.ask` answers the general coach chat from `CoachContext.overview`.
+  - `PlanReview` pairs each recommended workout with the Hevy workout that carried it out and compares
+    them exercise by exercise.
   - `ClaudeCoach` sends Claude a summary of all of that plus the rules engine's draft, and asks for the
     session as structured JSON. The engine's weights override Claude's for any exercise with history.
-- `app/` is the Jetpack Compose app: check-in, plan, workout logging with a rest timer, history,
-  progress charts and settings. Data is stored on the phone in `workouts.json`.
+- `app/` is the Jetpack Compose app: check-in, recommended workouts with their chats, programme, coach
+  chat, history, progress charts and settings. Data is stored on the phone in `workouts.json`,
+  `plans.json` and `coach-chat.json`.
 
 ## Building
 

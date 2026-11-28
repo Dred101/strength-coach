@@ -39,7 +39,6 @@ import app.repcoach.AppViewModel
 import app.repcoach.Settings
 import app.repcoach.UiState
 import app.repcoach.core.ClaudeCoach
-import app.repcoach.core.Programme
 import app.repcoach.core.Progression
 import app.repcoach.core.SetType
 import app.repcoach.core.volumeKg
@@ -95,7 +94,6 @@ fun SettingsScreen(state: UiState, vm: AppViewModel) {
     val importer = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? -> uri?.let(vm::importHevy) }
     val exporter = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri: Uri? -> uri?.let(vm::exportTo) }
     val restorer = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? -> uri?.let(vm::restoreBackup) }
-    val hevyExporter = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("text/csv")) { uri: Uri? -> uri?.let(vm::exportForHevy) }
     val autoBackup = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri: Uri? -> uri?.let(vm::enableAutoBackup) }
 
     Column(
@@ -104,28 +102,6 @@ fun SettingsScreen(state: UiState, vm: AppViewModel) {
     ) {
         Text("Settings", style = MaterialTheme.typography.headlineSmall)
 
-        Text("Your programme", style = MaterialTheme.typography.titleMedium)
-        val programme = state.programme
-        if (programme == null) {
-            Text("Full Body A and B are designed from your history the first time you plan a session.", style = MaterialTheme.typography.bodySmall)
-            OutlinedButton(onClick = { vm.ensureProgramme() }, enabled = state.workouts.isNotEmpty()) { Text("Design A and B now") }
-        } else {
-            Text(
-                "Do A and B once each a week (about ${Programme.MINUTES} minutes each). Main lifts (★) stay the same for " +
-                    "${Programme.BLOCK_WEEKS} weeks so you can beat them every time; extra days in between use different exercises. " +
-                    "Block ${programme.block}, week ${programme.week(System.currentTimeMillis())} of ${Programme.BLOCK_WEEKS}.",
-                style = MaterialTheme.typography.bodySmall,
-            )
-            programme.days.forEach { day ->
-                Text(day.title, fontWeight = FontWeight.SemiBold)
-                day.exercises.forEach { e -> Text("${if (e.anchor) "★ " else "• "}${e.name}: ${e.sets} sets", style = MaterialTheme.typography.bodyMedium) }
-            }
-            OutlinedButton(onClick = { vm.newBlock() }) { Text("Start a new block") }
-            Text("Keeps the main lifts and moves supporting lifts on to another variation you know.", style = MaterialTheme.typography.bodySmall)
-        }
-
-        HorizontalDivider()
-
         Text("AI coach", style = MaterialTheme.typography.titleMedium)
         OutlinedTextField(
             value = apiKey, onValueChange = { apiKey = it }, label = { Text("Claude API key") }, singleLine = true,
@@ -133,7 +109,7 @@ fun SettingsScreen(state: UiState, vm: AppViewModel) {
         )
         Text(
             "Create one at console.anthropic.com: add credit under Billing, set a monthly limit under Limits, then API Keys, Create Key. " +
-                "It's stored only on this phone. Without a key the built-in rules plan your sessions for free.",
+                "It's stored only on this phone. Without a key the built-in rules still plan sessions for free, but you can't ask the coach questions.",
             style = MaterialTheme.typography.bodySmall,
         )
         Text("Model", style = MaterialTheme.typography.labelLarge)
@@ -143,7 +119,7 @@ fun SettingsScreen(state: UiState, vm: AppViewModel) {
                 Text(label)
             }
         }
-        Text("Costs are rough estimates for one session plan.", style = MaterialTheme.typography.bodySmall)
+        Text("Costs are rough estimates for one session plan. A question to the coach costs about the same or less.", style = MaterialTheme.typography.bodySmall)
         OutlinedTextField(
             value = notes, onValueChange = { notes = it }, modifier = Modifier.fillMaxWidth(), minLines = 3,
             label = { Text("Notes for the coach") },
@@ -154,8 +130,9 @@ fun SettingsScreen(state: UiState, vm: AppViewModel) {
         HorizontalDivider()
         Text("Hevy sync", style = MaterialTheme.typography.titleMedium)
         Text(
-            "Log in Hevy and let Rep Coach plan. Rep Coach pulls your Hevy workouts when it opens and before every plan, " +
-                "and Send to Hevy on a plan puts it in Hevy as a routine. Needs Hevy Pro: on hevy.com, Settings, Developer, copy the API key.",
+            "Optional, needs Hevy Pro. Rep Coach then pulls your Hevy workouts when it opens and before every plan, " +
+                "and Send to Hevy on a plan puts it in Hevy as a routine. On hevy.com: Settings, Developer, copy the API key. " +
+                "Without Pro, import a fresh Hevy export now and then instead.",
             style = MaterialTheme.typography.bodySmall,
         )
         OutlinedTextField(
@@ -170,12 +147,12 @@ fun SettingsScreen(state: UiState, vm: AppViewModel) {
 
         HorizontalDivider()
         Text("Your data", style = MaterialTheme.typography.titleMedium)
-        Text("${state.workouts.size} workouts on this phone.")
+        Text("${state.workouts.size} workouts from Hevy and ${state.plans.size} recommended workouts on this phone.")
         OutlinedButton(onClick = { importer.launch(arrayOf("text/*", "application/octet-stream", "*/*")) }) { Text("Import Hevy CSV") }
         Text("In Hevy: Profile, Settings, Export & Import Data, Export Workouts. Importing again replaces the earlier Hevy data.", style = MaterialTheme.typography.bodySmall)
         Text("Automatic backup: " + if (state.autoBackup) "on" else "off", fontWeight = FontWeight.SemiBold)
         Text(
-            "Pick a file once, ideally in Google Drive, and the app rewrites it after every workout. " +
+            "Pick a file once, ideally in Google Drive, and the app rewrites it after every change, chats included. " +
                 "If the app is ever reinstalled, use Restore a backup and choose that file.",
             style = MaterialTheme.typography.bodySmall,
         )
@@ -183,14 +160,5 @@ fun SettingsScreen(state: UiState, vm: AppViewModel) {
         else Button(onClick = { autoBackup.launch("repcoach-autobackup.json") }) { Text("Turn on automatic backup") }
         OutlinedButton(onClick = { exporter.launch("repcoach-backup.json") }) { Text("Save a one-off backup") }
         OutlinedButton(onClick = { restorer.launch(arrayOf("application/json", "application/octet-stream", "*/*")) }) { Text("Restore a backup") }
-
-        HorizontalDivider()
-        Text("Going back to Hevy", style = MaterialTheme.typography.titleMedium)
-        OutlinedButton(onClick = { hevyExporter.launch("repcoach-for-hevy.csv") }) { Text("Export workouts for Hevy") }
-        Text(
-            "Saves the workouts you logged here (not the ones imported from Hevy, which Hevy already has) as a Strong-format CSV. " +
-                "In Hevy: Profile, Settings, Export & Import Data, Import data, Import Strong CSV. Hevy allows one import, so do this once, when you switch back.",
-            style = MaterialTheme.typography.bodySmall,
-        )
     }
 }
