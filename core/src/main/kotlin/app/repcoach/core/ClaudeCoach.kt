@@ -77,16 +77,44 @@ class ClaudeCoach(
      * Answers the lifter's questions about one suggestion, from [briefing] (the rules, facts and
      * research behind it plus their training summary). [turns] alternate, starting with the lifter.
      */
-    fun ask(briefing: String, turns: List<ChatTurn>): String {
+    fun ask(briefing: String, turns: List<ChatTurn>, prompt: String = COACH_PROMPT): String =
+        textOf(converse(briefing, turns, prompt, null, 4000L))
+
+    /**
+     * The chat on one recommended workout. The coach answers, and when the lifter asks for a change
+     * (or agrees to one the coach suggests) it returns the whole revised workout as well.
+     */
+    fun discussPlan(briefing: String, turns: List<ChatTurn>, current: SessionPlan, workouts: List<Workout>): PlanChatReply {
+        val reply = json.decodeFromString(PlanChatJson.serializer(), textOf(converse(briefing, turns, PLAN_CHAT_PROMPT, planChatSchema(), 8000L)))
+        if (!reply.changed || reply.exercises.isEmpty()) return PlanChatReply(reply.answer, null)
+        // Keep the coach's numbers (the lifter may have asked for lighter work), but fill in any
+        // weight it left open from the engine, and keep loads on 2.5 kg steps.
+        val progression = Progression(workouts)
+        val exercises = reply.exercises.map { ex ->
+            val target = progression.target(ex.name, 7, ex.sets)
+            ex.copy(
+                weightKg = ex.weightKg?.let(Progression::roundLoad) ?: target.weightKg,
+                restSeconds = ex.restSeconds.coerceIn(45, 300),
+                targetReps = null,
+            )
+        }
+        val minutes = Pace(workouts).planMinutes(exercises)
+        val summary = reply.summary.ifBlank { current.summary.substringBefore(" About ") }
+        return PlanChatReply(reply.answer, current.copy(summary = "$summary About $minutes minutes at your usual pace.", exercises = exercises, estimatedMinutes = minutes))
+    }
+
+    private fun converse(briefing: String, turns: List<ChatTurn>, prompt: String, schema: JsonOutputFormat.Schema?, maxTokens: Long): Message {
         require(turns.isNotEmpty() && turns.first().fromLifter)
         fun build(withFallbacks: Boolean): MessageCreateParams {
+            val output = OutputConfig.builder().effort(OutputConfig.Effort.LOW)
+            schema?.let { output.format(JsonOutputFormat.builder().schema(it).build()) }
             val builder = MessageCreateParams.builder()
                 .model(model)
-                .maxTokens(4000L)
+                .maxTokens(maxTokens)
                 .systemOfTextBlockParams(listOf(
-                    TextBlockParam.builder().text(EXPLAIN_PROMPT).cacheControl(CacheControlEphemeral.builder().build()).build()
+                    TextBlockParam.builder().text(prompt).cacheControl(CacheControlEphemeral.builder().build()).build()
                 ))
-                .outputConfig(OutputConfig.builder().effort(OutputConfig.Effort.LOW).build())
+                .outputConfig(output.build())
             turns.forEachIndexed { i, t ->
                 val text = if (i == 0) "$briefing\n\n## Question\n${t.text}" else t.text
                 if (t.fromLifter) builder.addUserMessage(text) else builder.addAssistantMessage(text)
@@ -97,12 +125,11 @@ class ClaudeCoach(
             }
             return builder.build()
         }
-        val reply = try {
+        return try {
             client.messages().create(build(withFallbacks = !model.startsWith("claude-haiku")))
         } catch (e: BadRequestException) {
             client.messages().create(build(withFallbacks = false))
         }
-        return textOf(reply)
     }
 
     private fun request(context: String, withFallbacks: Boolean): MessageCreateParams {
@@ -139,6 +166,9 @@ class ClaudeCoach(
     }
 
     @Serializable
+    private data class PlanChatJson(val answer: String, val changed: Boolean = false, val summary: String = "", val exercises: List<PlannedExercise> = emptyList())
+
+    @Serializable
     private data class ClaudePlan(val title: String, val summary: String, val exercises: List<PlannedExercise>)
 
     companion object {
@@ -154,8 +184,7 @@ class ClaudeCoach(
 
         private val json = Json { ignoreUnknownKeys = true }
 
-        private fun planSchema(): JsonOutputFormat.Schema {
-            val exercise = mapOf(
+        private val exerciseSchema = mapOf(
                 "type" to "object",
                 "additionalProperties" to false,
                 "required" to listOf("name", "sets", "repsMin", "repsMax", "weightKg", "targetRir", "restSeconds", "reason"),
@@ -170,6 +199,21 @@ class ClaudeCoach(
                     "reason" to mapOf("type" to "string"),
                 ),
             )
+
+        private fun planChatSchema(): JsonOutputFormat.Schema = JsonOutputFormat.Schema.builder()
+            .putAdditionalProperty("type", JsonValue.from("object"))
+            .putAdditionalProperty("additionalProperties", JsonValue.from(false))
+            .putAdditionalProperty("required", JsonValue.from(listOf("answer", "changed", "summary", "exercises")))
+            .putAdditionalProperty("properties", JsonValue.from(mapOf(
+                "answer" to mapOf("type" to "string"),
+                "changed" to mapOf("type" to "boolean"),
+                "summary" to mapOf("type" to "string"),
+                "exercises" to mapOf("type" to "array", "items" to exerciseSchema),
+            )))
+            .build()
+
+        private fun planSchema(): JsonOutputFormat.Schema {
+            val exercise = exerciseSchema
             return JsonOutputFormat.Schema.builder()
                 .putAdditionalProperty("type", JsonValue.from("object"))
                 .putAdditionalProperty("additionalProperties", JsonValue.from(false))
@@ -242,33 +286,70 @@ class ClaudeCoach(
               volume rather than load after poor sleep (Craven 2022).
         """.trimIndent()
 
-        val EXPLAIN_PROMPT = """
-            You are the lifter's strength coach, explaining a suggestion the coaching app made: a whole
-            session, one exercise, or one set. The briefing gives the rules that produced it, the facts
-            they used from the lifter's own history, the research behind each rule, and their recent
-            training. The app's rules engine sets weights, reps and rest; an AI model may have chosen the
-            exercises.
-
+        private val COACHING_STYLE = """
             How to answer:
             - Lead with the direct answer in plain words, then the reasons: their own numbers first
               (dates, weights, reps, sets this week, hours since a muscle was trained), then the rule, then
               the research by author and year from the briefing.
-            - Keep it short: a few sentences or a short list. The lifter reads this in the gym.
+            - Keep it short: a few sentences or a short list. The lifter may be reading this in the gym.
             - Be honest about the strength of the evidence. Say when a rule is coaching practice or a
               rule of thumb, and don't invent studies, numbers or history that aren't in the briefing.
             - If the lifter challenges a suggestion, take it seriously. If they're right, or the rule
-              doesn't fit their situation, say so plainly and say what you'd do instead and how to change
-              it in the app (adjust the weight, swap the exercise, skip a set, add a note in Settings).
-              If the rule still holds, explain why without being defensive.
+              doesn't fit their situation, say so plainly. If the rule still holds, explain why without
+              being defensive.
+            - The lifter logs every workout in Hevy, not in this app; the app reads their Hevy history.
+              Never ask them to log anything here.
             - Never give medical advice beyond suggesting they stop and see a professional if something hurts.
             - Use kilograms. No headings, no tables.
         """.trimIndent()
+
+        /** The general "Ask the coach" chat, and any question without a specific workout. */
+        val COACH_PROMPT = """
+            You are the lifter's strength coach inside a coaching app. The app gives advice and structure:
+            it designs their programme (Full Body A and B each week, with fixed main lifts for an 8-week
+            block and varied sessions in between) and recommends individual workouts. The briefing gives
+            their programme, their training history from Hevy, lift trends, weekly volume and recovery,
+            and the research the app's rules follow.
+
+            Answer questions about training, their programme, their progress and what to do next.
+            When they ask what to change, give a concrete answer (exercise, sets, reps, kg) grounded
+            in their history. To get a full workout recommended, they tap Plan a session.
+
+        """.trimIndent() + "\n" + COACHING_STYLE
+
+        /** The chat attached to one recommended workout. Replies are JSON, see planChatSchema. */
+        val PLAN_CHAT_PROMPT = """
+            You are the lifter's strength coach, talking about one workout the coaching app recommended.
+            The briefing gives that workout exercise by exercise with the reason for each, how it went if
+            they've already done it and logged it in Hevy, the facts and research behind the app's rules,
+            and their recent training.
+
+            Reply as JSON:
+            - answer: what you say to the lifter.
+            - changed: true only when the lifter asked for a change to this workout (a swap, a sore
+              joint, less time, different equipment) or clearly agreed to one you suggested. Otherwise
+              false. Don't change a workout they've already done; talk about next time instead.
+            - When changed is true: exercises is the whole revised workout in order, every exercise
+              including the ones that stay the same, with a reason for each; summary is one or two
+              sentences on the revised session; and answer says briefly what you changed. Keep the
+              app's weights for unchanged exercises. For a new exercise with history, base the weight
+              on their recent sets; with no history, set weightKg to null. Keep main lifts (Full Body A
+              and B anchors) unless the lifter asks to change them, and say what that costs.
+            - When changed is false: exercises is an empty list and summary is "".
+            - If the workout has been done, compare what they did with the plan: what went well, what
+              fell short, and what that means for next time (by the double-progression rule: weight up
+              once every set reaches the top of the rep range).
+
+        """.trimIndent() + "\n" + COACHING_STYLE
     }
 }
 
-/** One message in an "Ask why" conversation. */
+/** One message in a conversation with the coach. */
 @Serializable
 data class ChatTurn(val fromLifter: Boolean, val text: String)
+
+/** The coach's answer in a workout's chat, with the revised workout when it changed it. */
+data class PlanChatReply(val answer: String, val revised: SessionPlan?)
 
 /** Turns training history into the compact briefing Claude plans from. */
 object CoachContext {
@@ -292,6 +373,19 @@ object CoachContext {
         }
         if (equipmentNotes.isNotBlank()) appendLine("Notes from the lifter: $equipmentNotes")
 
+        append(history(p))
+
+        appendLine()
+        appendLine("## Draft from the rules engine: ${draft.title}")
+        for (e in draft.exercises) {
+            appendLine("${e.name}: ${e.sets} x ${e.repsMin}-${e.repsMax} @ ${e.weightKg?.let { Progression.fmt(it) + " kg" } ?: "choose"}, RIR ${e.targetRir}, rest ${e.restSeconds}s. ${e.reason}")
+        }
+    }
+
+    /** Their training as it stands: pace, recent sessions, volume, recovery and lift trends. */
+    fun history(p: Progression): String = buildString {
+        val zone = ZoneId.systemDefault()
+        fun date(ms: Long) = Instant.ofEpochMilli(ms).atZone(zone).format(day)
         val pace = Pace(p.workouts)
         appendLine("Pace factor: %.2f (actual session time ÷ standard estimate). ".format(Locale.UK, pace.factor) + pace.describe())
 
@@ -332,10 +426,30 @@ object CoachContext {
         appendLine("## Exercises in their history, most used first")
         appendLine(p.exerciseNames().take(40).joinToString("; "))
 
+    }
+
+    /** The briefing for the general coach chat: no particular workout, the whole picture. */
+    fun overview(p: Progression, programme: Programme?, notes: String): String = buildString {
+        val zone = ZoneId.systemDefault()
+        appendLine("## Today")
+        appendLine("Date: ${Instant.ofEpochMilli(p.now).atZone(zone).format(day)}. Sessions this week: ${p.sessionsThisWeek()}. Workouts in their history: ${p.workouts.size}.")
+        if (notes.isNotBlank()) appendLine("Notes from the lifter: $notes")
         appendLine()
-        appendLine("## Draft from the rules engine: ${draft.title}")
-        for (e in draft.exercises) {
-            appendLine("${e.name}: ${e.sets} x ${e.repsMin}-${e.repsMax} @ ${e.weightKg?.let { Progression.fmt(it) + " kg" } ?: "choose"}, RIR ${e.targetRir}, rest ${e.restSeconds}s. ${e.reason}")
+        append(programmeText(programme, p))
+        appendLine()
+        append(history(p))
+        appendLine()
+        appendLine("## Research behind the app's rules")
+        listOf(Why.VARIATION, Why.VOLUME, Why.FREQUENCY, Why.RECOVERY, Why.REPS, Why.RIR, Why.REST, Why.PROGRESSION, Why.DELOAD, Why.PLATEAU)
+            .forEach { appendLine("- ${it.rule}: ${it.finding} (${it.source})") }
+    }
+
+    fun programmeText(programme: Programme?, p: Progression): String = buildString {
+        if (programme == null) { appendLine("## Programme\nNot designed yet."); return@buildString }
+        appendLine("## Programme: block ${programme.block}, week ${programme.week(p.now)} of ${Programme.BLOCK_WEEKS}")
+        appendLine("Full Body A and B once each a week, about ${Programme.MINUTES} minutes. Main lifts (anchors) stay fixed for the block; extra days are mixed sessions with different exercises. Next due: ${Planner(p, programme).dueDay()?.title ?: "A and B done this week"}.")
+        programme.days.forEach { d ->
+            appendLine("${d.title}: " + d.exercises.joinToString("; ") { "${it.name} ${it.sets} sets${if (it.anchor) " (anchor)" else ""}" })
         }
     }
 }

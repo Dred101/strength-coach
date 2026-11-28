@@ -1,24 +1,22 @@
 package app.repcoach
 
 import android.content.Context
+import app.repcoach.core.ChatTurn
 import app.repcoach.core.ClaudeCoach
 import app.repcoach.core.Programme
-import app.repcoach.core.SessionPlan
+import app.repcoach.core.SavedPlan
 import app.repcoach.core.Workout
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.json.Json
 import java.io.File
 
-/** A workout being logged right now, saved after every set so nothing is lost if the app closes. */
+/** Everything a backup holds: workouts from Hevy, recommended workouts with their chats, and the coach chat. */
 @Serializable
-data class ActiveWorkout(
-    val plan: SessionPlan,
-    val startMillis: Long,
-    val energy: Int,
-    /** Logged sets per exercise name, in plan order. */
-    val logged: Map<String, List<app.repcoach.core.LoggedSet>> = emptyMap(),
-    val restEndsAt: Long? = null,
+data class Backup(
+    val workouts: List<Workout> = emptyList(),
+    val plans: List<SavedPlan> = emptyList(),
+    val coachChat: List<ChatTurn> = emptyList(),
 )
 
 data class Settings(
@@ -29,30 +27,44 @@ data class Settings(
     val hevyKey: String = "",
 )
 
-/** Everything lives on the phone: workouts in a JSON file, settings in private preferences. */
+/** Everything lives on the phone: workouts, plans and chats in JSON files, settings in private preferences. */
 class Store(context: Context) {
     private val dir = context.filesDir
     private val workoutsFile = File(dir, "workouts.json")
-    private val activeFile = File(dir, "active.json")
+    private val plansFile = File(dir, "plans.json")
+    private val chatFile = File(dir, "coach-chat.json")
     private val prefs = context.getSharedPreferences("settings", Context.MODE_PRIVATE)
     private val json = Json { ignoreUnknownKeys = true; encodeDefaults = true }
     private val listSerializer = ListSerializer(Workout.serializer())
+    private val plansSerializer = ListSerializer(SavedPlan.serializer())
+    private val chatSerializer = ListSerializer(ChatTurn.serializer())
+
+    init {
+        // Workouts being logged in the app, from before logging moved to Hevy.
+        File(dir, "active.json").delete()
+    }
 
     fun loadWorkouts(): List<Workout> =
         if (workoutsFile.exists()) json.decodeFromString(listSerializer, workoutsFile.readText()) else emptyList()
 
     fun saveWorkouts(workouts: List<Workout>) = writeAtomically(workoutsFile, json.encodeToString(listSerializer, workouts))
 
-    fun exportJson(workouts: List<Workout>): String = json.encodeToString(listSerializer, workouts)
+    fun loadPlans(): List<SavedPlan> =
+        if (plansFile.exists()) runCatching { json.decodeFromString(plansSerializer, plansFile.readText()) }.getOrDefault(emptyList()) else emptyList()
 
-    fun parseBackup(text: String): List<Workout> = json.decodeFromString(listSerializer, text)
+    fun savePlans(plans: List<SavedPlan>) = writeAtomically(plansFile, json.encodeToString(plansSerializer, plans))
 
-    fun loadActive(): ActiveWorkout? =
-        if (activeFile.exists()) runCatching { json.decodeFromString(ActiveWorkout.serializer(), activeFile.readText()) }.getOrNull() else null
+    fun loadCoachChat(): List<ChatTurn> =
+        if (chatFile.exists()) runCatching { json.decodeFromString(chatSerializer, chatFile.readText()) }.getOrDefault(emptyList()) else emptyList()
 
-    fun saveActive(active: ActiveWorkout?) {
-        if (active == null) activeFile.delete() else writeAtomically(activeFile, json.encodeToString(ActiveWorkout.serializer(), active))
-    }
+    fun saveCoachChat(turns: List<ChatTurn>) = writeAtomically(chatFile, json.encodeToString(chatSerializer, turns))
+
+    fun exportJson(backup: Backup): String = json.encodeToString(Backup.serializer(), backup)
+
+    /** Reads a backup; older backups were a plain list of workouts. */
+    fun parseBackup(text: String): Backup =
+        if (text.trimStart().startsWith("[")) Backup(workouts = json.decodeFromString(listSerializer, text))
+        else json.decodeFromString(Backup.serializer(), text)
 
     fun loadSettings() = Settings(
         apiKey = prefs.getString("apiKey", "") ?: "",
@@ -85,7 +97,7 @@ class Store(context: Context) {
         get() = prefs.getString("programme", null)?.let { runCatching { json.decodeFromString(Programme.serializer(), it) }.getOrNull()?.upgraded() }
         set(value) { prefs.edit().putString("programme", value?.let { json.encodeToString(Programme.serializer(), it) }).apply() }
 
-    /** A document the user picked once; every change to workouts is copied there. */
+    /** A document the user picked once; every change to workouts, plans or chats is copied there. */
     var autoBackupUri: String?
         get() = prefs.getString("autoBackupUri", null)
         set(value) { prefs.edit().putString("autoBackupUri", value).apply() }

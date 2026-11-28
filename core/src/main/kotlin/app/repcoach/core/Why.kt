@@ -45,9 +45,6 @@ object Why {
     val RIR = Evidence("1 to 2 reps in reserve",
         "Growth improves as sets end closer to failure while strength barely changes; going all the way to failure added nothing meaningful.",
         "Robinson et al. 2024; Refalo et al. 2023")
-    val AUTOREG = Evidence("Re-plan each set from how hard the last felt",
-        "Rating sets by reps in reserve is a valid way to judge and adjust effort during a session.",
-        "Helms et al. 2016")
     val PROGRESSION = Evidence("Add 2.5 kg once every set reaches the top of the range",
         "Increase load by about 2 to 10% when the target reps can be beaten, in the smallest practical step.",
         "ACSM 2009")
@@ -105,19 +102,5 @@ object Why {
         }
         val evidence = listOfNotNull(REPS, RIR, REST, PROGRESSION, RECOVERY, VOLUME, if (trend?.plateau == true) PLATEAU else null)
         return WhyTopic(e.name, facts, evidence)
-    }
-
-    /** [number] counts working sets from 1. [logged] is what's been logged for this exercise today. */
-    fun forSet(e: PlannedExercise, number: Int, suggestion: SetSuggestion, logged: List<LoggedSet>, p: Progression): WhyTopic {
-        val today = logged.filter { it.type != SetType.WARMUP }
-        val facts = buildList {
-            add("Set $number of ${e.sets}: ${suggestion.weightKg?.let { Progression.fmt(it) + " kg" } ?: "your choice of weight"} for ${suggestion.reps} reps.")
-            if (suggestion.note.isNotBlank()) add("Reason on the set: ${suggestion.note}.")
-            add(if (today.isEmpty()) "Nothing logged yet today, so this comes from the plan."
-                else "Logged today: " + today.joinToString(", ") { s -> "${Progression.fmt(s.weightKg)}×${s.reps}" + (s.rir?.let { " (${it.toInt()} RIR)" } ?: " (no RIR logged)") })
-            add("How later sets are re-planned: 2 or more reps easier than planned adds 2.5 kg; a grind or missing the rep range drops the weight to 90% or 2.5 kg less; 1 rep closer to failure than planned aims 1 rep fewer; otherwise same again.")
-        }
-        val base = forExercise(e, p)
-        return WhyTopic("set $number of ${e.name}", facts + base.facts, listOf(AUTOREG, RIR, PROGRESSION) + base.evidence.filter { it != RIR && it != PROGRESSION })
     }
 }

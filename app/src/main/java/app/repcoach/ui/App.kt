@@ -22,7 +22,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Tab
-import androidx.compose.material3.TabRow
+import androidx.compose.material3.ScrollableTabRow
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -32,25 +32,27 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import app.repcoach.AppViewModel
+import app.repcoach.COACH_CHAT
 import app.repcoach.Screen
 
-private val tabs = listOf(Screen.HOME to "Today", Screen.HISTORY to "History", Screen.PROGRESS to "Charts", Screen.RECORDS to "Records", Screen.SETTINGS to "Settings")
+private val tabs = listOf(
+    Screen.HOME to "Today", Screen.PROGRAMME to "Programme", Screen.COACH to "Coach", Screen.HISTORY to "History",
+    Screen.PROGRESS to "Charts", Screen.RECORDS to "Records", Screen.SETTINGS to "Settings",
+)
 
 @Composable
 fun App(vm: AppViewModel) {
     val state by vm.state.collectAsState()
-    val inFlow = state.screen in setOf(Screen.CHECK_IN, Screen.PLAN, Screen.WORKOUT)
+    val inFlow = state.screen in setOf(Screen.CHECK_IN, Screen.PLAN)
 
-    BackHandler(enabled = state.screen != Screen.HOME && state.screen != Screen.WORKOUT) {
-        vm.go(if (state.screen == Screen.PLAN) Screen.CHECK_IN else Screen.HOME)
-    }
+    BackHandler(enabled = state.screen != Screen.HOME) { vm.go(Screen.HOME) }
 
     Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
         Scaffold(
             modifier = Modifier.safeDrawingPadding(),
             bottomBar = {
                 if (!inFlow) {
-                    TabRow(selectedTabIndex = tabs.indexOfFirst { it.first == state.screen }.coerceAtLeast(0)) {
+                    ScrollableTabRow(selectedTabIndex = tabs.indexOfFirst { it.first == state.screen }.coerceAtLeast(0), edgePadding = 0.dp) {
                         tabs.forEach { (screen, label) ->
                             Tab(selected = state.screen == screen, onClick = { vm.go(screen) }, text = { Text(label) })
                         }
@@ -65,7 +67,8 @@ fun App(vm: AppViewModel) {
                         Screen.HOME -> HomeScreen(state, vm)
                         Screen.CHECK_IN -> CheckInScreen(state, vm)
                         Screen.PLAN -> PlanScreen(state, vm)
-                        Screen.WORKOUT -> WorkoutScreen(state, vm)
+                        Screen.PROGRAMME -> ProgrammeScreen(state, vm)
+                        Screen.COACH -> CoachScreen(state, vm)
                         Screen.HISTORY -> HistoryScreen(state, vm)
                         Screen.PROGRESS -> ProgressScreen(state)
                         Screen.RECORDS -> RecordsScreen(state)
@@ -73,7 +76,14 @@ fun App(vm: AppViewModel) {
                     }
                 }
                 state.busy?.let { Busy(it) }
-                state.why?.let { AskWhyDialog(it, hasKey = state.settings.apiKey.isNotBlank(), onAsk = vm::askWhy, onDismiss = vm::closeWhy) }
+                state.why?.let { topic ->
+                    WhyDialog(
+                        topic,
+                        // Questions from a workout go to that workout's chat; anything else to the coach chat.
+                        onAsk = { vm.startQuestion(if (state.screen == Screen.PLAN) state.openPlanId ?: COACH_CHAT else COACH_CHAT, "About ${topic.title}: ") },
+                        onDismiss = { vm.showWhy(null) },
+                    )
+                }
             }
         }
     }

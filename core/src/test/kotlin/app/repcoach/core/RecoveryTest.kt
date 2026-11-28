@@ -78,8 +78,6 @@ class RecoveryTest {
         assertTrue(topic.facts.any { "Heavy 5–8" in it })
         assertTrue(topic.facts.any { "chest:" in it && "ready in about" in it }, topic.facts.toString())
         assertTrue(topic.evidence.any { "Morán-Navarro" in it.source })
-        val set = Why.forSet(bench, 2, SetSuggestion(62.5, 7, "Last set felt easy: up 2.5 kg"), listOf(LoggedSet(60.0, 8, rir = 4.0)), p)
-        assertTrue(set.asText().contains("felt easy") && set.asText().contains("Helms et al. 2016"))
         val plan = Why.forPlan(Planner(p).plan(CheckIn(7, 60)), p)
         assertTrue(plan.facts.any { it.startsWith("Recovery by muscle") })
     }
